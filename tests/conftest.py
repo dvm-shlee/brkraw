@@ -1,30 +1,10 @@
-import os
-import pytest
-import subprocess
+import sys
 from pathlib import Path
-from brkraw.api.pvobj import PvStudy
-from brkraw import setup_logging
+import pytest
 
-def pytest_configure(config):
-    setup_logging(path=Path(__file__).parent / 'logging.yaml')
+THIS_FILE = Path(__file__).resolve()
+REPO_ROOT = THIS_FILE.parents[1]
+SRC_DIR = REPO_ROOT / "src"
 
-# temporary dataset function
-def get_dataset(local: bool):
-    dataset = {}
-    dset_idx = 0
-    if local:
-        dset_path = Path(__file__).parents[2] / 'brkraw-dataset_local'
-    else:
-        subprocess.check_call(["git", "clone", "https://github.com/BrkRaw/brkraw-dataset.git"])
-        dset_path = Path(__file__).parent / 'brkraw-dataset'
-    for path, _, files in os.walk(dset_path):
-        for f in files:
-            if f.endswith('.zip'):
-                pvobj = PvStudy(Path(path) / f)
-                dataset[dset_idx] = pvobj
-                dset_idx += 1
-    return dataset
-
-@pytest.fixture(scope='package')
-def dataset():
-    return get_dataset(True)
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))

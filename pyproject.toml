@@ -1,8 +1,11 @@
 [build-system]
+requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
 
 [project]
+name = "brkraw"
+dynamic = ["version"]
+description = "Bruker PvDataset Loader"
 classifiers = [
     'Development Status :: 5 - Production/Stable',
     'Intended Audience :: Science/Research',
@@ -10,21 +13,18 @@ classifiers = [
     'Natural Language :: English',
 ]
 dependencies = [
-    'pyyaml>=6.0.1',
-    'numpy>=1.18.0',
-    'tqdm>=4.45.0',
-    'xnippet @ git+https://github.com/dvm-shlee/xnippet.git',
-    'reshipe', #'reshipe @ git+https://github.com/dvm-shlee/reshipe.git'
+    "numpy",
+    "nibabel",
+    "PyYAML",
+    "jsonschema",
+    "typing_extensions",
 ]
-description = "Bruker PvDataset Loader"
 license = {text = "GNLv3"}
-dynamic = ["version"]
 maintainers = [
     {name = "SungHo Lee", email = 'shlee@unc.edu'}
 ]
-name = "brkraw"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 keywords = [
     'bruker', 
     'data_handler', 
@@ -36,46 +36,33 @@ keywords = [
 [project.urls]
 Homepage = "https://brkraw.github.io"
 
-[tool.hatch.metadata]
-allow-direct-references = true
+[project.scripts]
+brkraw = "brkraw.cli:main"
+
+[project.entry-points."brkraw.cli"]
+addon = "brkraw.cli.commands.addon:register"
+config = "brkraw.cli.commands.config:register"
+info = "brkraw.cli.commands.info:register"
+init = "brkraw.cli.commands.init:register"
+env = "brkraw.cli.commands.env:register"
+params = "brkraw.cli.commands.params:register"
+tonii = "brkraw.cli.commands.tonii:register"
 
 [project.optional-dependencies]
-all = ["brkraw[tonii]", "brkraw[viewer]"]
-
-legacy = [
-    'brkraw[all]',
-    'pandas>=1.0.0',
-    'openpyxl>=3.0.3',
-    'xlrd>=1.0.0',
-]
-
-simpleitk = [
-    'SimpleITK>=1.2.4',
-]
-
-tonii = [
-    'nibabel>=3.0.2',
-]
-
-viewer = [
-    'pillow>=7.1.1'
-]
-
-dev = [
-    "matplotlib",
-    "flake8",
-    "pytest",
-    "nbmake",
-    "types-PyYAML",
-]
+plugin = ["jsonschema"]
+full = ["brkraw[plugin]"]
+minimal = []
 
 [tool.hatch.version]
-path = "brkraw/__init__.py"
+path = "src/brkraw/__init__.py"
 style = "pep440"
 
-[project.scripts]
-brkraw = "brkraw.scripts.brkraw:main"
-brk-backup = 'brkraw.scripts.brk_backup:main'
+[tool.hatch.build]
+sources = ["src"]
+
+[tool.hatch.build.targets.wheel]
+artifacts = ["LICENSE"]
+include = ["src/brkraw/assets/**"]
 
 [tool.pytest.ini_options]
 log_cli = true

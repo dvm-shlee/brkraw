@@ -1,37 +1,45 @@
-# Contributing to BrkRaw
+# Contributing
 
-Thank you for your interest in contributing to BrkRaw! Whether you're tackling a bug, adding a new feature, or improving our documentation, every contribution is appreciated. This guide will help you get started with your contributions in the most effective way.
+Thanks for your interest in contributing to BrkRaw.
 
-## Ways to Contribute
+We welcome contributions across:
 
-### Reporting Issues
+- New sequence support (custom rules/specs/converter entrypoints)
+- Reconstruction pipelines (FID-based or other custom paths)
+- Image denoising or ML-powered workflows
+- CLI plugins and tooling built on top of the BrkRaw API
 
-If you encounter a bug, have a suggestion, or want to make a feature request, please use the Issues section. Include as much detail as possible and label your issue appropriately.
+## Extension points
 
-### Pull Requests
+You can extend BrkRaw without modifying core code:
 
-We welcome pull requests with open arms! Here’s how you can make one:
+- Add rules/specs/transforms via the `addon` CLI.
+- Provide `converter_entrypoint` overrides for specialized conversion logic.
+- Ship CLI plugins through `brkraw.cli` entrypoints.
 
-- **Code Changes**: If you are updating the BrkRaw codebase, perhaps due to a ParaVision compatibility issue or to suggest a new standard, please make sure your changes are well-documented. 
-- **New Features**: If you're introducing a new feature, ensure that you include appropriate test scripts in the `tests` directory, following our standard testing workflow. Check our documentation for more details.
-- **New Applications**: Contributions that significantly enhance community utility but cannot be integrated via the plugin architecture should be directed to the main BrkRaw package.
+See `docs/Addons-and-Plugins.md` for a detailed overview and examples in
+`assets/examples/`.
 
-Before creating a pull request, ensure that your code complies with the existing code style and that you have tested your changes locally.
+## Defaults we want help with
 
-### Contributing to Child Repositories
+We are looking for suggestions on default rules/specs to ship out of the box.
+If you work with specific Bruker sequences, please propose:
 
-- **[plugin](https://github.com/brkraw/brkraw-plugin.git)**: For new functionalities at the app level, direct your contributions here.
-- **[dataset](https://github.com/brkraw/brkraw-dataset.git)**: To add a new dataset that needs to be tested via BrkRaw CI for data conversion consistency and reliability, please contribute here.
-- **[tutorial](https://github.com/brkraw/brkraw-tutorial.git)**: For new tutorials, tutorial revisions, or documentation that would help other users, please contribute to this repository.
+- `info_spec` improvements for `brkraw info` / `BrukerLoader.info`.
+- `metadata_spec` mappings for sidecar metadata (BIDS or lab standards).
+- Rules that select the right spec based on `method`, `acqp`, or `visu_pars`.
 
-## Before You Start
+Even small improvements (for example, better labels or parameter keys) are
+useful. Open a PR or start a discussion with your sequence details and the
+parameter files you rely on.
 
-Please review the documentation and Q&A to see if your question has already been answered or if the feature has already been discussed. If you’re unsure about adding a feature or making a change, open an issue to discuss it first.
+## Packaging and distribution
 
-## Contribution Guidelines
+We encourage authors to package addons and plugins as standalone repositories
+so they can be installed independently. This makes it easier to distribute new
+tools to other labs and users.
 
-- Ensure your contributions are clear and easy to understand.
-- Include any necessary tests and documentation updates.
-- Adhere to the coding standards and best practices as outlined in our project documentation.
+## Community
 
-We look forward to your contributions and are excited to see what you come up with!
+If you build something useful, please open a PR or start a discussion. We plan
+to periodically highlight community plugins on the BrkRaw main site.

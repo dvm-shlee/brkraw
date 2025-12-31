@@ -1,0 +1,87 @@
+__meta__:
+  transforms_source: "transform.py"
+
+Method:
+  sources:
+    - file: acqp
+      key: ACQ_method
+  transform: strip_jcamp_string
+Protocol:
+  sources:
+    - file: acqp
+      key: ACQ_protocol_name
+  transform: strip_jcamp_string
+Dim:
+  sources:
+    - file: acqp
+      key: ACQ_dim
+DimDesc:
+  sources:
+    - file: acqp
+      key: ACQ_dim_desc
+  transform: convert_to_list
+NumEchoes:
+  sources:
+    - file: acqp
+      key: NECHOES
+TE (ms):
+  sources:
+    - file: method
+      key: PVM_EchoTime
+    - file: acqp
+      key: ACQ_echo_time
+  transform: convert_to_list
+TR (ms):
+  sources:
+    - file: method
+      key: PVM_RepetitionTime
+    - file: acqp
+      key: ACQ_repetition_time
+  transform: convert_to_list
+FlipAngle (degree):
+  sources:
+    - file: acqp
+      key: ACQ_flip_angle
+Shape:
+  sources:
+    - file: method
+      key: PVM_Matrix
+  transform: convert_to_list
+FOV (mm):
+  sources:
+    - file: method
+      key: PVM_Fov
+  transform: convert_to_list
+NumSlicePack:
+  sources:
+    - file: method
+      key: PVM_NSPacks
+SliceOrient:
+  sources:
+    - file: method
+      key: PVM_SPackArrSliceOrient
+  transform: convert_to_list
+ReadOrient:
+  sources:
+    - file: method
+      key: PVM_SPackArrSliceOrient
+  transform: convert_to_list
+SliceDistance (mm):
+  sources:
+    - file: method
+      key: PVM_SPackArrSliceDistance
+  transform: convert_to_list
+SliceGap (mm):
+  sources:
+    - file: method
+      key: PVM_SPackArrSliceGap
+  transform: convert_to_list
+NumAverage:
+  sources:
+    - file: method
+      key: PVM_NAverages
+NumRepeat:
+  sources:
+    - file: method
+      key: PVM_NRepetitions
+

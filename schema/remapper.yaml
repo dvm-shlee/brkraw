@@ -1,0 +1,119 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "BrkRaw Parameter Mapping Spec"
+description: "Map Bruker parameter files into a structured output dict."
+type: object
+properties:
+  __meta__:
+    type: object
+    properties:
+      name:
+        type: string
+      description:
+        type: string
+      transforms_source:
+        anyOf:
+          - type: string
+          - type: array
+            items:
+              type: string
+      include:
+        anyOf:
+          - type: string
+          - type: array
+            items:
+              type: string
+      include_mode:
+        type: string
+        enum:
+          - override
+          - strict
+    additionalProperties: false
+additionalProperties:
+  $ref: "#/$defs/Rule"
+
+$defs:
+  Rule:
+    type: object
+    properties:
+      sources:
+        type: array
+        items: { $ref: "#/$defs/SourceItem" }
+        description: "Ordered list of sources to resolve a single output value."
+      inputs:
+        type: object
+        additionalProperties: { $ref: "#/$defs/Input" }
+        description: "Named inputs that are passed to a transform or returned as-is."
+      transform:
+        anyOf:
+          - type: string
+          - type: array
+            items: { type: string }
+        description: "Transform name(s) to apply. Arrays execute in order."
+    additionalProperties: false
+    oneOf:
+      - required: ["sources"]
+      - required: ["inputs"]
+
+  Source:
+    type: object
+    properties:
+      file:
+        type: string
+        enum: ["method", "acqp", "visu_pars", "reco", "subject"]
+        description: "Parameter file namespace."
+      key:
+        type: string
+        description: "Key name in the parameter file."
+      reco_id:
+        type: integer
+        minimum: 1
+        description: "Reco id used when file targets reco-specific data."
+    required: ["file", "key"]
+    additionalProperties: false
+  SourceItem:
+    anyOf:
+      - $ref: "#/$defs/Source"
+      - $ref: "#/$defs/InlineInputs"
+
+  InlineInputs:
+    type: object
+    properties:
+      inputs:
+        type: object
+        additionalProperties: { $ref: "#/$defs/Input" }
+        description: "Named inputs that are passed to a transform or returned as-is."
+      transform:
+        anyOf:
+          - type: string
+          - type: array
+            items: { type: string }
+        description: "Transform name(s) to apply. Arrays execute in order."
+    additionalProperties: false
+    required: ["inputs"]
+
+  Input:
+    type: object
+    properties:
+      sources:
+        type: array
+        items: { $ref: "#/$defs/Source" }
+        description: "Ordered list of sources to resolve an input value."
+      const: {}
+      ref:
+        type: string
+        description: "Dot path to a previously resolved output value."
+      transform:
+        anyOf:
+          - type: string
+          - type: array
+            items: { type: string }
+        description: "Transform name(s) to apply. Arrays execute in order."
+      default: {}
+      required:
+        type: boolean
+        description: "If true, missing input raises instead of returning None."
+    additionalProperties: false
+    oneOf:
+      - required: ["sources"]
+      - required: ["const"]
+      - required: ["ref"]
