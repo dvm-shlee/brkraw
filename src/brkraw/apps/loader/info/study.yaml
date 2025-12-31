@@ -1,0 +1,148 @@
+study:
+  __meta__:
+    transforms_source: "transform.py"
+  Study.Opperator:
+    sources:
+      - file: subject
+        key: SUBJECT_referral
+      - file: subject
+        key: SUBJECT_study_operator
+    transform: strip_jcamp_string
+  Study.Date:
+    sources:
+      - file: subject
+        key: SUBJECT_abs_date
+      - file: subject
+        key: SUBJECT_study_date
+    transform:
+      - unixtime_to_datetime
+  Study.ID:
+    sources:
+      - file: subject
+        key: SUBJECT_study_name
+    transform: strip_jcamp_string
+  Study.Number:
+    sources:
+      - file: subject
+        key: SUBJECT_study_nr
+    transform: strip_jcamp_string
+  Study.InstanceUID:
+    sources:
+      - file: subject
+        key: SUBJECT_study_instance_uid
+    transform: strip_jcamp_string
+  Subject.ID:
+    sources:
+      - file: subject
+        key: SUBJECT_id
+    transform: strip_jcamp_string
+  Subject.Name:
+    sources:
+      - file: subject
+        key: SUBJECT_name_string
+    transform: strip_jcamp_string
+  Subject.Type:
+    sources:
+      - file: subject
+        key: SUBJECT_type
+  Subject.Sex:
+    sources:
+      - file: subject
+        key: SUBJECT_sex
+      - file: subject
+        key: SUBJECT_gender
+    transform: strip_jcamp_string
+  Subject.DateOfBirth:
+    sources:
+      - file: subject
+        key: SUBJECT_dbirth
+    transform:
+      - strip_jcamp_string
+      - stringtime_to_datetime
+  Subject.Weight:
+    sources:
+      - file: subject
+        key: SUBJECT_weight
+    transform: strip_jcamp_string
+  Subject.Position:
+    sources:
+      - file: subject
+        key: SUBJECT_study_instrument_position
+      - inputs:
+          entry:
+            sources:
+              - file: subject
+                key: SUBJECT_entry
+          position:
+            sources:
+              - file: subject
+                key: SUBJECT_position
+        transform: merge_entry_and_position
+    transform: strip_jcamp_string
+
+scan:
+  __meta__:
+    transforms_source: "transform.py"
+  Study.Opperator:
+    sources:
+      - file: visu_pars
+        key: VisuStudyReferringPhysician
+    transform: strip_jcamp_string
+  Study.Date:
+    sources:
+      - file: visu_pars
+        key: VisuStudyDate
+    transform:
+      - strip_jcamp_string
+      - stringtime_to_datetime
+  Study.ID:
+    sources:
+      - file: visu_pars
+        key: VisuStudyId
+    transform: strip_jcamp_string
+  Study.Number:
+    sources:
+      - file: visu_pars
+        key: VisuStudyNumber
+    transform: strip_jcamp_string
+  Study.InstanceUID:
+    sources:
+      - file: visu_pars
+        key: VisuStudyUid
+    transform: strip_jcamp_string
+  Subject.ID:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectId
+    transform: strip_jcamp_string
+  Subject.Name:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectName
+    transform: strip_jcamp_string
+  Subject.Type:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectType
+    transform: strip_jcamp_string
+  Subject.Sex:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectSex
+    transform: strip_jcamp_string
+  Subject.DateOfBirth:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectBirthDate
+    transform:
+      - strip_jcamp_string
+      - stringtime_to_datetime
+  Subject.Weight:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectWeight
+    transform: strip_jcamp_string
+  Subject.Position:
+    sources:
+      - file: visu_pars
+        key: VisuSubjectPosition
