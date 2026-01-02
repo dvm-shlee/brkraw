@@ -11,8 +11,8 @@ first scan that contains a reco with a readable visu_pars object.
 from typing import Any, cast, TYPE_CHECKING, Dict, Optional
 from pathlib import Path
 from ....core.parameters import Parameters
-from ....core.remapper import load_spec, map_parameters
-from ....core.remapper.validator import validate_spec
+from ....specs.remapper import load_spec, map_parameters
+from ....specs.remapper.validator import validate_spec
 
 
 if TYPE_CHECKING:

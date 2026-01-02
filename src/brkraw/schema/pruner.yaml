@@ -1,0 +1,56 @@
+---
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "BrkRaw Pruner Spec"
+type: object
+additionalProperties: false
+properties:
+  source:
+    type: string
+  dest:
+    type: string
+  files:
+    type: array
+    minItems: 1
+    items:
+      type:
+        - string
+        - number
+  mode:
+    type: string
+    enum: ["keep", "drop"]
+  update_params:
+    type: object
+    additionalProperties:
+      type: object
+      additionalProperties:
+        type:
+          - string
+          - number
+          - boolean
+          - "null"
+  dir_rules:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: ["mode", "level", "dirs"]
+      properties:
+        mode:
+          type: string
+          enum: ["keep", "drop"]
+        level:
+          type: integer
+          minimum: 1
+        dirs:
+          type: array
+          minItems: 1
+          items:
+            type:
+              - string
+              - number
+  add_root:
+    type: boolean
+  root_name:
+    type: string
+required:
+  - files

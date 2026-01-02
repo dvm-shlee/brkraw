@@ -13,13 +13,14 @@ from types import MethodType
 import re
 import logging
 import sys
-from typing import TYPE_CHECKING, Optional, Tuple, Union, Any, Mapping, Callable, cast, List, Dict
+from typing import TYPE_CHECKING, Optional, Tuple, Union, Any, Mapping, Callable, cast, List, Dict, Iterable, Literal
 from pathlib import Path
 
 from ...core import config as config_core
 from ...core.config import resolve_root
-from ...core import converter as converter_core
-from ...core.rules import load_rules, select_rule_use
+from ...specs import converter as converter_core
+from ...specs.pruner import prune_dataset_to_zip
+from ...specs.rules import load_rules, select_rule_use
 from ...dataclasses import Reco, Scan, Study
 from .types import StudyLoader, ScanLoader, RecoLoader
 from .formatter import format_info_tables
@@ -364,6 +365,41 @@ class BrukerLoader:
         """
         scan = self.get_scan(scan_id)
         return scan.get_metadata(reco_id=reco_id, spec=spec, return_spec=return_spec)
+
+    def prune_to_zip(
+        self,
+        dest: Union[str, Path],
+        files: Iterable[str],
+        *,
+        mode: Literal["keep", "drop"] = "keep",
+        update_params: Optional[Mapping[str, Mapping[str, Optional[str]]]] = None,
+        add_root: bool = True,
+        root_name: Optional[str] = None,
+    ) -> "BrukerLoader":
+        """Create a pruned dataset zip and return a loader for it.
+
+        Args:
+            dest: Destination zip path.
+            files: Filenames or relative paths used by the selection mode.
+            mode: "keep" to include only matching files, "drop" to exclude them.
+            update_params: Mapping or YAML path of {filename: {key: value}} JCAMP edits.
+            add_root: Whether to include a top-level root directory in the zip.
+            root_name: Override the root directory name when add_root is True.
+
+        Returns:
+            Loader bound to the newly created pruned zip.
+        """
+        source = self._study.fs.root
+        out_path = prune_dataset_to_zip(
+            source,
+            dest,
+            files=files,
+            mode=mode,
+            update_params=update_params,
+            add_root=add_root,
+            root_name=root_name,
+        )
+        return BrukerLoader(out_path, affine_decimals=self._affine_decimals, unwrap_pose=self._unwrap_pose)
 
     @property
     def avail(self) -> Mapping[int, Union["Scan", "ScanLoader"]]:

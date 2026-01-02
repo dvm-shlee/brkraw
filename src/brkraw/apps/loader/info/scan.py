@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, cast, TYPE_CHECKING, Dict, Optional, Union
 from pathlib import Path
-from ....core.remapper import load_spec, map_parameters
-from ....core.remapper.validator import validate_spec
+from ....specs.remapper import load_spec, map_parameters
+from ....specs.remapper.validator import validate_spec
 
 
 if TYPE_CHECKING:
