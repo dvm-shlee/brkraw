@@ -1,4 +1,4 @@
-# SPEC Syntax Guide (core.remapper module)
+# SPEC Syntax Guide (specs.remapper module)
 
 This module maps Bruker parameter files into a structured output dictionary.
 
@@ -40,7 +40,7 @@ If `transform` is omitted, the resolved value (or the inputs dict) is returned a
 To validate the spec against the schema:
 
 ```python
-from brkraw.core.remapper import map_parameters
+from brkraw.specs.remapper import map_parameters
 
 result = map_parameters(scan, spec, validate=True)
 ```

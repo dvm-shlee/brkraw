@@ -15,11 +15,11 @@ from nibabel.nifti1 import Nifti1Image
 
 from ...core.config import resolve_root
 from ...core.parameters import Parameters
-from ...core.remapper import load_spec, map_parameters
-from ...core.rules import load_rules, select_rule_use
+from ...specs.remapper import load_spec, map_parameters
+from ...specs.rules import load_rules, select_rule_use
 from ...dataclasses import Reco, Scan, Study
 from .types import StudyLoader, ScanLoader
-from ...core import converter as converter_core
+from ...specs import converter as converter_core
 from ...resolver import affine as affine_resolver
 from ...resolver import image as image_resolver
 from ...resolver import fid as fid_resolver

@@ -1,4 +1,4 @@
-# Rule Syntax guide (core.rules module)
+# Rule Syntax guide (specs.rules module)
 
 This document describes the rule syntax used to select specs and entry points
 from `~/.brkraw/rules/*.yaml`. Rule files are loaded in filename order and

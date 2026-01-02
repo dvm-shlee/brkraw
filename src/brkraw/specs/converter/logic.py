@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, Union
 
-from ..entrypoints import list_entry_points
-from .validator import validate_entrypoint, CONVERTER_KEYS
+from ...core.entrypoints import list_entry_points
+from .validator import validate_entrypoint
 
 DEFAULT_GROUP = "brkraw.converter"
 
@@ -27,9 +27,4 @@ def resolve_entrypoint(
     return dict(entrypoint)
 
 
-__all__ = [
-    "CONVERTER_KEYS",
-    "DEFAULT_GROUP",
-    "resolve_entrypoint",
-    "validate_entrypoint",
-]
+__all__ = ["DEFAULT_GROUP", "resolve_entrypoint"]

@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, List, Dict, Optional
+import importlib.resources as resources
 
 import yaml
 
-from ..entrypoints import list_entry_points
+from ...core.entrypoints import list_entry_points
 
 CONVERTER_GROUP = "brkraw.converter"
 
-def _schema_path() -> Path:
-    """Return the default rules schema path."""
-    return Path(__file__).resolve().parents[4] / "schema" / "rules.yaml"
+def _load_schema() -> Dict[str, Any]:
+    if __package__ is None:
+        raise RuntimeError("Package context required to load rules schema.")
+    with resources.files("brkraw.schema").joinpath("rules.yaml").open(
+        "r", encoding="utf-8"
+    ) as handle:
+        return yaml.safe_load(handle)
 
 
 def validate_rules(
@@ -28,8 +33,11 @@ def validate_rules(
         import jsonschema
     except ImportError as exc:
         raise RuntimeError("jsonschema is required to validate rule files.") from exc
-    schema_file = schema_path or _schema_path()
-    schema = yaml.safe_load(schema_file.read_text(encoding="utf-8"))
+    schema = (
+        _load_schema()
+        if schema_path is None
+        else yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    )
     jsonschema.Draft202012Validator(schema).validate(rule_data)
     _validate_converter_entrypoints(rule_data)
 

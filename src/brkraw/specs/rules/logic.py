@@ -5,7 +5,7 @@ from typing import Any, List, Dict, Optional, Union
 
 import yaml
 
-from .. import config as config_module
+from ...core import config as config_module
 from ..remapper import load_spec, map_parameters
 from .validator import validate_rules
 

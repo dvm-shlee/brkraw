@@ -18,6 +18,7 @@ import numpy as np
 
 from brkraw.cli.utils import load
 from brkraw.core import config as config_core
+from brkraw.resolver import nifti as nifti_resolver
 from brkraw.resolver.nifti import XYZUNIT, TUNIT, Nifti1HeaderContents
 from brkraw.resolver.affine import SubjectPose, SubjectType
 
@@ -105,7 +106,7 @@ def cmd_tonii(args: argparse.Namespace) -> int:
     if args.output_format is None:
         args.output_format = os.environ.get("BRKRAW_TONII_OUTPUT_FORMAT")
     if args.header is None:
-        args.header = _parse_header_env(os.environ.get("BRKRAW_TONII_HEADER"))
+        args.header = os.environ.get("BRKRAW_TONII_HEADER")
 
     if not Path(args.path).exists():
         logger.error("Path not found: %s", args.path)
@@ -123,7 +124,10 @@ def cmd_tonii(args: argparse.Namespace) -> int:
         return 2
 
     loader = load(args.path, prefix="Loading")
-    override_header = _parse_header_args(args.header)
+    try:
+        override_header = nifti_resolver.load_header_overrides(args.header)
+    except ValueError:
+        return 2
     batch_all = args.scan_id is None
     if batch_all and args.output and not output_is_file and not args.output.endswith(os.sep):
         args.output = f"{args.output}{os.sep}"
@@ -372,25 +376,6 @@ def _expand_output_paths(
     return [base_dir / f"{base}_slpack{i + 1}{ext}" for i in range(count)]
 
 
-def _parse_header_args(items: Optional[List[str]]) -> Optional[Dict[str, Any]]:
-    if not items:
-        return None
-    header: Dict[str, Any] = {}
-    for item in items:
-        if "=" not in item:
-            header[item] = None
-            continue
-        key, value = item.split("=", 1)
-        header[key] = value
-    return header
-
-
-def _parse_header_env(value: Optional[str]) -> Optional[List[str]]:
-    if not value:
-        return None
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
 def _env_flag(name: str) -> bool:
     value = os.environ.get(name)
     if value is None:
@@ -499,8 +484,7 @@ def _add_tonii_args(
     )
     parser.add_argument(
         "--header",
-        nargs="*",
-        help="Override NIfTI header fields as KEY=VALUE pairs.",
+        help="Path to a YAML file containing NIfTI header overrides.",
     )
     parser.add_argument(
         "--root",

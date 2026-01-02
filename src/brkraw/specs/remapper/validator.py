@@ -36,13 +36,9 @@ def _validate_transforms_source(
 
 
 def _load_schema() -> Dict[str, Any]:
-    schema_path = Path(__file__).resolve().parents[4] / "schema" / "remapper.yaml"
-    if schema_path.exists():
-        with schema_path.open("r", encoding="utf-8") as handle:
-            return yaml.safe_load(handle)
     if __package__ is None:
         raise RuntimeError("Package context required to load remapper schema.")
-    with resources.files(__package__).joinpath("schema.yaml").open(
+    with resources.files("brkraw.schema").joinpath("remapper.yaml").open(
         "r", encoding="utf-8"
     ) as handle:
         return yaml.safe_load(handle)

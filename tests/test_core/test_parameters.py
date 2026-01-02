@@ -253,3 +253,57 @@ def test_parameter_smoke():
     assert summary["exception_files"] == []
     assert summary["raw_value_params"] == []
     assert summary["attr_access_errors"] == []
+
+
+def test_source_text_and_save_to(monkeypatch, fake_parsed_data, tmp_path):
+    """source_text and save_to should round-trip current source bytes."""
+    def fake_parse_jcamp(_):
+        return fake_parsed_data
+
+    monkeypatch.setattr(p, "parse_jcamp", fake_parse_jcamp)
+
+    text = "##TITLE= test\n##$Param1= 1\n"
+    params = Parameters(text.encode("utf-8"))
+
+    assert params.source_text() == text
+
+    out_path = tmp_path / "out.jdx"
+    params.save_to(out_path)
+    assert out_path.read_text() == text
+
+
+def test_edit_source_updates_text(monkeypatch, fake_parsed_data):
+    """edit_source should update underlying source text."""
+    def fake_parse_jcamp(_):
+        return fake_parsed_data
+
+    monkeypatch.setattr(p, "parse_jcamp", fake_parse_jcamp)
+
+    params = Parameters(b"##TITLE= test\n")
+    params.edit_source("##TITLE= updated\n", reparse=False)
+
+    assert params.source_text() == "##TITLE= updated\n"
+
+
+def test_replace_value_updates_blocks(monkeypatch, fake_parsed_data):
+    """replace_value(s) should edit or remove JCAMP blocks."""
+    def fake_parse_jcamp(_):
+        return fake_parsed_data
+
+    monkeypatch.setattr(p, "parse_jcamp", fake_parse_jcamp)
+
+    src = "##TITLE= test\n##$Param1= 1 2 3\n##$Param2=(2)\n4 5\n"
+    params = Parameters(src.encode("utf-8"))
+    params.replace_values(
+        {
+            "Param1": "9",
+            "Param2": None,
+            "Param3": "(2)\n6 7",
+        },
+        reparse=False,
+    )
+
+    text = params.source_text()
+    assert "##$Param1= 9\n" in text
+    assert "Param2" not in text
+    assert "Param3" not in text

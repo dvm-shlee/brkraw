@@ -1,9 +1,23 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict, Optional, Literal, Tuple, Sequence, cast, Any
+from typing import (
+    TYPE_CHECKING,
+    TypedDict,
+    Optional,
+    Literal,
+    Tuple,
+    Sequence,
+    Mapping,
+    Union,
+    cast,
+    Any,
+    get_args,
+)
 import logging
+from pathlib import Path
 import numpy as np
 from nibabel.spatialimages import HeaderDataError
+import yaml
 
 if TYPE_CHECKING:
     from .image import ResolvedImage
@@ -38,6 +52,151 @@ class Nifti1HeaderContents(TypedDict, total=False):
     cal_min: float
     cal_max: float
     pixdim: Sequence[float]
+
+
+_XYZ_UNITS = set(get_args(XYZUNIT))
+_T_UNITS = set(get_args(TUNIT))
+_HEADER_FIELDS = {
+    "flip_x",
+    "slice_code",
+    "slope_inter",
+    "time_step",
+    "slice_duration",
+    "xyzt_unit",
+    "qform",
+    "sform",
+    "qform_code",
+    "sform_code",
+    "dim_info",
+    "slice_start",
+    "slice_end",
+    "intent_code",
+    "intent_name",
+    "descrip",
+    "aux_file",
+    "cal_min",
+    "cal_max",
+    "pixdim",
+}
+
+
+def load_header_overrides(path: Optional[Union[str, Path]]) -> Optional[Nifti1HeaderContents]:
+    if not path:
+        return None
+    header_path = Path(path).expanduser()
+    if not header_path.exists():
+        logger.error("Header file not found: %s", header_path)
+        raise ValueError("header file not found")
+    if header_path.suffix.lower() not in {".yaml", ".yml"}:
+        logger.error("Header file must be .yaml/.yml: %s", header_path)
+        raise ValueError("header file must be yaml")
+    try:
+        data = yaml.safe_load(header_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.error("Failed to read header YAML: %s", exc)
+        raise ValueError("header yaml read failed") from exc
+    if data is None:
+        return None
+    if not isinstance(data, Mapping):
+        logger.error("Header YAML must be a mapping at the top level.")
+        raise ValueError("header yaml must be mapping")
+    _validate_header_schema(data)
+    return _coerce_header_contents(data)
+
+
+def _load_header_schema() -> Optional[Mapping[str, Any]]:
+    schema_path = Path(__file__).resolve().parents[3] / "schema" / "niftiheader.yaml"
+    if schema_path.exists():
+        return yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    logger.debug("NIfTI header schema not found: %s", schema_path)
+    return None
+
+
+def _validate_header_schema(data: Mapping[str, Any]) -> None:
+    schema = _load_header_schema()
+    if schema is None:
+        _validate_header_minimal(data)
+        return
+    try:
+        import jsonschema
+    except Exception:
+        _validate_header_minimal(data)
+        return
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = []
+    for err in validator.iter_errors(data):
+        path = ".".join(str(p) for p in err.path)
+        prefix = f"header.{path}" if path else "header"
+        errors.append(f"{prefix}: {err.message}")
+    if errors:
+        raise ValueError("Invalid NIfTI header overrides:\n" + "\n".join(errors))
+
+
+def _validate_header_minimal(data: Mapping[str, Any]) -> None:
+    extra = set(data.keys()) - _HEADER_FIELDS
+    if extra:
+        raise ValueError(f"Unknown NIfTI header fields: {sorted(extra)}")
+
+
+def _coerce_bool(value: Any, *, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        val = value.strip().lower()
+        if val in {"1", "true", "yes", "y", "on"}:
+            return True
+        if val in {"0", "false", "no", "n", "off"}:
+            return False
+        raise ValueError(f"Invalid {name}: {value!r}")
+    return bool(value)
+
+
+def _coerce_header_contents(data: Mapping[str, Any]) -> Nifti1HeaderContents:
+    header: Nifti1HeaderContents = {}
+    for key, value in data.items():
+        if value is None:
+            if key in {"time_step", "slice_duration"}:
+                header[key] = None
+                continue
+            raise ValueError(f"{key} cannot be null.")
+        if key == "flip_x":
+            header[key] = _coerce_bool(value, name=key)
+        elif key in {"slice_code", "qform_code", "sform_code", "slice_start", "slice_end", "intent_code"}:
+            header[key] = int(value)
+        elif key in {"time_step", "slice_duration", "cal_min", "cal_max"}:
+            header[key] = float(value)
+        elif key == "slope_inter":
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ValueError("slope_inter must be a 2-item list.")
+            header[key] = (float(value[0]), float(value[1]))
+        elif key == "xyzt_unit":
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ValueError("xyzt_unit must be a 2-item list.")
+            xyz, t = value
+            if str(xyz) not in _XYZ_UNITS or str(t) not in _T_UNITS:
+                raise ValueError("xyzt_unit must be one of supported XYZUNIT/TUNIT values.")
+            header[key] = cast(XYZTUnit, (cast(XYZUNIT, str(xyz)), cast(TUNIT, str(t))))
+        elif key in {"qform", "sform"}:
+            arr = np.asarray(value, dtype=float)
+            if arr.shape != (4, 4):
+                raise ValueError(f"{key} must be a 4x4 matrix.")
+            header[key] = arr
+        elif key == "dim_info":
+            if not isinstance(value, (list, tuple)) or len(value) != 3:
+                raise ValueError("dim_info must be a 3-item list.")
+            dim0 = None if value[0] is None else int(value[0])
+            dim1 = None if value[1] is None else int(value[1])
+            dim2 = None if value[2] is None else int(value[2])
+            header[key] = (dim0, dim1, dim2)
+        elif key in {"intent_name", "descrip", "aux_file"}:
+            header[key] = str(value)
+        elif key == "pixdim":
+            if not isinstance(value, (list, tuple)) or not value:
+                raise ValueError("pixdim must be a non-empty list.")
+            header[key] = [float(v) for v in value]
+        else:
+            raise ValueError(f"Unknown NIfTI header field: {key}")
+    return header
 
 
 def _coerce_scalar(value, *, name: str) -> float:
@@ -206,5 +365,6 @@ def update(
 
 __all__ = [
     'resolve',
-    'update'
+    'update',
+    'load_header_overrides',
 ]

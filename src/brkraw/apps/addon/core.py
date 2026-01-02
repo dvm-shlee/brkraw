@@ -14,8 +14,8 @@ from typing import Any, List, Dict, Tuple, Set, Optional, Union
 import yaml
 
 from ...core import config as config_core
-from ...core import remapper
-from ...core.rules import validator as rules_validator
+from ...specs import remapper
+from ...specs.rules import validator as rules_validator
 
 logger = logging.getLogger("brkraw")
 

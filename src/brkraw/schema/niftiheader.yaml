@@ -1,0 +1,95 @@
+---
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "BrkRaw NIfTI Header Overrides"
+type: object
+additionalProperties: false
+properties:
+  flip_x:
+    type: boolean
+  slice_code:
+    type: integer
+  slope_inter:
+    type: array
+    items:
+      type: number
+    minItems: 2
+    maxItems: 2
+  time_step:
+    type:
+      - number
+      - "null"
+  slice_duration:
+    type:
+      - number
+      - "null"
+  xyzt_unit:
+    type: array
+    items:
+      - $ref: "#/$defs/xyz_unit"
+      - $ref: "#/$defs/t_unit"
+    minItems: 2
+    maxItems: 2
+  qform:
+    $ref: "#/$defs/matrix4x4"
+  sform:
+    $ref: "#/$defs/matrix4x4"
+  qform_code:
+    type: integer
+  sform_code:
+    type: integer
+  dim_info:
+    type: array
+    items:
+      type:
+        - integer
+        - "null"
+    minItems: 3
+    maxItems: 3
+  slice_start:
+    type: integer
+  slice_end:
+    type: integer
+  intent_code:
+    type: integer
+  intent_name:
+    type: string
+  descrip:
+    type: string
+  aux_file:
+    type: string
+  cal_min:
+    type: number
+  cal_max:
+    type: number
+  pixdim:
+    type: array
+    items:
+      type: number
+    minItems: 1
+$defs:
+  xyz_unit:
+    type: string
+    enum:
+      - unknown
+      - meter
+      - mm
+      - micron
+  t_unit:
+    type: string
+    enum:
+      - sec
+      - msec
+      - usec
+      - hz
+      - ppm
+      - rads
+  matrix4x4:
+    type: array
+    minItems: 4
+    maxItems: 4
+    items:
+      type: array
+      minItems: 4
+      maxItems: 4
+      items:
+        type: number
