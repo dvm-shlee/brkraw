@@ -25,7 +25,7 @@ import logging
 from collections import OrderedDict
 import io
 from pathlib import Path
-from typing import IO, Optional, Any, Union, Tuple, Literal, List, Dict
+from typing import IO, Optional, Any, Union, Tuple, Literal, List, Dict, Mapping
 import numpy as np
 import json
 from .jcamp import parse_jcamp
@@ -98,6 +98,55 @@ class Parameters:
             return io.BytesIO(data_bytes), data_bytes
 
         raise TypeError(f"Unsupported source type: {type(source)}")
+
+    def edit_source(
+        self,
+        source: Union[str, bytes, bytearray],
+        *,
+        reparse: bool = True,
+        format_registry: Optional[dict] = None,
+    ) -> None:
+        """Replace the underlying JCAMP source and optionally reparse.
+
+        Args:
+            source: New JCAMP content as text or bytes.
+            reparse: When True, rebuild parsed header/params from the new content.
+            format_registry: Optional formatter overrides for reparse.
+        """
+        if isinstance(source, str):
+            data = source.encode("utf-8")
+        else:
+            data = bytes(source)
+
+        self._source = io.BytesIO(data)
+        self._source_bytes = data
+
+        if reparse:
+            try:
+                parsed_data = parse_jcamp(self._source)
+            except Exception as exc:
+                raise ValueError("Source does not look like JCAMP-DX content.") from exc
+            self._formatting(parsed_data, format_registry or self._format)
+
+    def save_to(self, path: Union[Path, str]) -> Path:
+        """Write the current source bytes to a new file."""
+        out_path = Path(path)
+        out_path.write_bytes(self._source_bytes)
+        return out_path
+
+    def source_text(self) -> str:
+        """Return the current JCAMP source as text."""
+        return self._source_bytes.decode("utf-8", errors="ignore")
+
+    def replace_value(self, key: str, value: Optional[str], *, reparse: bool = True) -> None:
+        """Replace a JCAMP parameter block with a raw JCAMP value string."""
+        self.replace_values({key: value}, reparse=reparse)
+
+    def replace_values(self, updates: Mapping[str, Optional[str]], *, reparse: bool = True) -> None:
+        """Replace multiple JCAMP parameter blocks with raw JCAMP value strings."""
+        text = self._source_bytes.decode("utf-8", errors="ignore")
+        updated_text = _edit_jcamp_text(text, updates)
+        self.edit_source(updated_text, reparse=reparse, format_registry=self._format)
 
     @staticmethod
     def _looks_like_jcamp(data: bytes) -> bool:
@@ -678,6 +727,49 @@ def run_smoke_test(
             summary["ok_files"].append(jdx_path)
 
     return summary
+
+
+def _edit_jcamp_text(text: str, updates: Mapping[str, Optional[str]]) -> str:
+    if not updates:
+        return text
+    pending = set(updates.keys())
+    lines = text.splitlines(keepends=True)
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("##$"):
+            key = line[3:].split("=", 1)[0].strip()
+            block_start = i
+            i += 1
+            while i < len(lines) and not lines[i].startswith("##"):
+                i += 1
+            block_lines = lines[block_start:i]
+            if key in updates:
+                pending.discard(key)
+                new_value = updates[key]
+                if new_value is None:
+                    continue
+                out.extend(_format_param_block(key, new_value))
+            else:
+                out.extend(block_lines)
+            continue
+        out.append(line)
+        i += 1
+    if pending:
+        logger.debug("JCAMP update keys not found: %s", sorted(pending))
+    return "".join(out)
+
+
+def _format_param_block(key: str, value: str) -> List[str]:
+    value = value.rstrip("\n")
+    lines = value.splitlines()
+    if not lines:
+        return [f"##${key}= \n"]
+    out = [f"##${key}= {lines[0]}\n"]
+    if len(lines) > 1:
+        out.extend([line + "\n" for line in lines[1:]])
+    return out
 
 
 __all__ = [
