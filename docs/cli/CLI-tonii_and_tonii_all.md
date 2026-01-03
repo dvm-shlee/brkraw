@@ -11,17 +11,25 @@ converted.
 Examples:
 
 - `brkraw tonii /path/to/study -s 3 -r 1 -o out`
+
 - `brkraw tonii /path/to/study --sidecar`
+
 - `brkraw tonii /path/to/study -o out` (all scans, all recos)
+
 - `brkraw tonii /path/to/study --sidecar --sidecar-map-file maps.yaml`
+
 - `brkraw tonii /path/to/study --output-map-file output_maps.yaml`
 
 Notes:
 
 - `-o` with `.nii` or `.nii.gz` writes a single file.
+
 - `-o` without an extension is treated as a directory when converting all scans.
-- Multiple slice packs are written with `_slpackN` suffixes.
+
+- Multiple slice packs use `output.slicepack_suffix` from `config.yaml`.
+
 - `--sidecar-map-file` overrides the map file used for metadata sidecars.
+
 - `--output-map-file` overrides the map file used for output filename mapping.
 
 ## brkraw tonii_all
@@ -35,7 +43,9 @@ Examples:
 Notes:
 
 - `-o` must be a directory for `tonii_all`.
+
 - `tonii_all` always converts all scans and recos.
+
 - Each dataset path is logged before conversion.
 
 ## Output format
@@ -53,16 +63,22 @@ See `docs/api/API-Output-Format.md` for the programmatic API.
 
 Example:
 
-```
+```yaml
 output:
   format_fields:
+
   - key: Study.ID
+
     entry: study
     hide: false
+
   - key: Subject.ID
+
     entry: sub
     hide: false
+
   - key: Protocol
+
     hide: true
 ```
 
@@ -72,7 +88,11 @@ You can set defaults via `brkraw session set --tonii-option KEY=VALUE`.
 Common keys:
 
 - `OUTPUT`, `PREFIX`, `SCAN_ID`, `RECO_ID`
+
 - `SIDECAR`, `SIDECAR_MAP_FILE`, `OUTPUT_MAP_FILE`
+
 - `UNWRAP_POSE`, `FLIP_X`
+
 - `OVERRIDE_SUBJECT_TYPE`, `OVERRIDE_SUBJECT_POSE`
+
 - `XYZ_UNITS`, `T_UNITS`, `HEADER`, `OUTPUT_FORMAT`

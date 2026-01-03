@@ -39,6 +39,7 @@ output:
     - key: Protocol
       hide: true
   format_spec: null
+  slicepack_suffix: "_slpack{index}"
   # float_decimals: 6
 
 # rules_dir: rules
@@ -319,6 +320,15 @@ def output_format_spec(root: Optional[Union[str, Path]] = None) -> Optional[str]
     config = resolve_config(root=root)
     value = config.get("output", {}).get("format_spec")
     return str(value) if isinstance(value, str) and value else None
+
+
+def output_slicepack_suffix(
+    root: Optional[Union[str, Path]] = None,
+    default: str = "_slpack{index}",
+) -> str:
+    config = resolve_config(root=root)
+    value = config.get("output", {}).get("slicepack_suffix", default)
+    return str(value) if isinstance(value, str) and value else default
 
 
 def _normalize_config(data: Dict[str, Any]) -> Dict[str, Any]:

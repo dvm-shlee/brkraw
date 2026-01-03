@@ -25,17 +25,48 @@ name = output_format_core.render_output_format(
 Fields:
 
 - `key`: dotted key resolved from the output format spec (for example `Subject.ID`).
+
 - `entry`: prefix label used to emit `entry-value` (optional when `hide` is true).
+
 - `hide`: when true, only the value is appended.
+
 - `use_entry`: reuse a previously defined `entry` value.
+
 - `sep`: separator to insert after this field (default `_`, use `/` for folders).
+
 - `value_pattern`: regex that defines allowed characters (default `[A-Za-z0-9._-]`).
+
 - `value_replace`: replacement for disallowed characters (default `""`).
+
 - `max_length`: truncate values longer than this length.
 
 Notes:
 
 - Values come from the output format spec (or built-in study/scan info).
+
 - Missing values are skipped.
+
 - When no parts remain, the fallback is `scan-<ScanID>`.
+
 - `map_file` overrides the spec `__meta__.map_file` at runtime.
+
+## Slice pack suffixes
+
+```python
+info = output_format_core.load_output_format_info(
+    loader,
+    scan_id=3,
+    output_format_spec="metadata_common",
+)
+suffixes = output_format_core.render_slicepack_suffixes(
+    info,
+    count=3,
+    template="_{SliceOrient}",
+)
+```
+
+Notes:
+
+- `{index}` is always 1-based.
+
+- `{SliceOrient}` resolves from the default info spec when present.

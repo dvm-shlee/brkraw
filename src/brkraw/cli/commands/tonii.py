@@ -195,11 +195,28 @@ def cmd_tonii(args: argparse.Namespace) -> int:
                 base_name = f"{base_name}_reco-{reco_id}"
             base_name = _sanitize_filename(base_name)
 
+            slicepack_suffixes = None
+            if len(nii_list) > 1:
+                info = output_format_core.load_output_format_info(
+                    loader,
+                    scan_id,
+                    output_format_spec=format_spec,
+                    map_file=args.output_map_file,
+                    root=args.root,
+                    reco_id=reco_id,
+                )
+                slicepack_suffixes = output_format_core.render_slicepack_suffixes(
+                    info,
+                    count=len(nii_list),
+                    template=config_core.output_slicepack_suffix(root=args.root),
+                )
             output_paths = _resolve_output_paths(
                 args.output,
                 base_name,
                 count=len(nii_list),
                 output_format=output_format,
+                slicepack_suffix=config_core.output_slicepack_suffix(root=args.root),
+                slicepack_suffixes=slicepack_suffixes,
             )
             if output_paths is None:
                 return 2
@@ -329,27 +346,57 @@ def _resolve_output_paths(
     *,
     count: int,
     output_format: str,
+    slicepack_suffix: str,
+    slicepack_suffixes: Optional[List[str]],
 ) -> Optional[List[Path]]:
     if output is None:
         base_dir = Path.cwd()
         base = base_name
         ext = ".nii.gz" if output_format == "nii.gz" else ".nii"
-        return _expand_output_paths(base_dir, base, ext, count=count)
+        return _expand_output_paths(
+            base_dir,
+            base,
+            ext,
+            count=count,
+            slicepack_suffix=slicepack_suffix,
+            slicepack_suffixes=slicepack_suffixes,
+        )
     else:
         out_path = Path(output).expanduser()
         if output.endswith(os.sep) or (out_path.exists() and out_path.is_dir()):
             base_dir = out_path
             base = base_name
             ext = ".nii.gz" if output_format == "nii.gz" else ".nii"
-            return _expand_output_paths(base_dir, base, ext, count=count)
+            return _expand_output_paths(
+                base_dir,
+                base,
+                ext,
+                count=count,
+                slicepack_suffix=slicepack_suffix,
+                slicepack_suffixes=slicepack_suffixes,
+            )
         if out_path.suffix in {".nii", ".gz"} or out_path.name.endswith(".nii.gz"):
             base_dir = out_path.parent
             base, ext = _split_nifti_name(out_path)
-            return _expand_output_paths(base_dir, base, ext, count=count)
+            return _expand_output_paths(
+                base_dir,
+                base,
+                ext,
+                count=count,
+                slicepack_suffix=slicepack_suffix,
+                slicepack_suffixes=slicepack_suffixes,
+            )
         base_dir = out_path
         base = base_name
     ext = ".nii.gz" if output_format == "nii.gz" else ".nii"
-    return _expand_output_paths(base_dir, base, ext, count=count)
+    return _expand_output_paths(
+        base_dir,
+        base,
+        ext,
+        count=count,
+        slicepack_suffix=slicepack_suffix,
+        slicepack_suffixes=slicepack_suffixes,
+    )
 
 
 def _expand_output_paths(
@@ -358,11 +405,21 @@ def _expand_output_paths(
     ext: str,
     *,
     count: int,
+    slicepack_suffix: str,
+    slicepack_suffixes: Optional[List[str]],
 ) -> List[Path]:
     base_dir.mkdir(parents=True, exist_ok=True)
     if count <= 1:
         return [base_dir / f"{base}{ext}"]
-    return [base_dir / f"{base}_slpack{i + 1}{ext}" for i in range(count)]
+    if slicepack_suffixes:
+        return [
+            base_dir / f"{base}{slicepack_suffixes[i]}{ext}"
+            for i in range(min(count, len(slicepack_suffixes)))
+        ]
+    suffix = slicepack_suffix or "_slpack{index}"
+    if "{index}" not in suffix:
+        suffix = f"{suffix}{{index}}"
+    return [base_dir / f"{base}{suffix.format(index=i + 1)}{ext}" for i in range(count)]
 
 
 def _env_flag(name: str) -> bool:

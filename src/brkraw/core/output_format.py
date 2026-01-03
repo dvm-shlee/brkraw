@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Union, List
+from typing import Any, Dict, Iterable, Mapping, Optional, Union, List, Sequence
 import re
 
 import numpy as np
@@ -12,6 +12,7 @@ from ..specs.remapper import load_spec, map_parameters
 
 _ENTRY_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 _DEFAULT_VALUE_PATTERN = r"[A-Za-z0-9._-]"
+_SLICEPACK_TAG = re.compile(r"\{([^}]+)\}")
 
 
 def render_output_format(
@@ -24,10 +25,9 @@ def render_output_format(
     root: Optional[Union[str, Path]] = None,
     reco_id: Optional[int] = None,
 ) -> str:
-    scan = loader.get_scan(scan_id)
-    info = _load_format_info(
+    info = load_output_format_info(
         loader,
-        scan,
+        scan_id,
         output_format_spec=output_format_spec,
         map_file=map_file,
         root=root,
@@ -36,15 +36,16 @@ def render_output_format(
     return _render_fields(output_format_fields, info, scan_id)
 
 
-def _load_format_info(
+def load_output_format_info(
     loader: Any,
-    scan: Any,
+    scan_id: int,
     *,
     output_format_spec: Optional[Union[str, Path]],
     map_file: Optional[Union[str, Path]],
     root: Optional[Union[str, Path]],
     reco_id: Optional[int],
 ) -> Dict[str, Any]:
+    scan = loader.get_scan(scan_id)
     if output_format_spec:
         spec_path = resolve_spec_reference(
             str(output_format_spec),
@@ -73,6 +74,49 @@ def _load_format_info(
         if "Subject" in study_info:
             scan_info["Subject"] = study_info["Subject"]
     return scan_info
+
+
+def render_slicepack_suffixes(
+    info: Mapping[str, Any],
+    *,
+    count: int,
+    template: str = "_slpack{index}",
+) -> List[str]:
+    suffixes: List[str] = []
+    for idx in range(count):
+        suffixes.append(_render_slicepack_suffix(template, info, idx))
+    return suffixes
+
+
+def _render_slicepack_suffix(template: str, info: Mapping[str, Any], idx: int) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        tag = match.group(1)
+        if tag.lower() == "index":
+            return str(idx + 1)
+        value = _resolve_tag(tag, info, idx + 1)
+        chosen = _select_indexed_value(value, idx)
+        if chosen is None:
+            return str(idx + 1)
+        rendered = _format_value_with_options(
+            chosen,
+            value_pattern=None,
+            value_replace="",
+            max_length=None,
+        )
+        return rendered or str(idx + 1)
+
+    return _SLICEPACK_TAG.sub(_replace, template)
+
+
+def _select_indexed_value(value: Any, idx: int) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, np.ndarray):
+        items = value.tolist()
+        return items[idx] if idx < len(items) else None
+    if isinstance(value, (list, tuple)):
+        return value[idx] if idx < len(value) else None
+    return value
 
 
 def _build_params_map(loader: Any, scan: Any, *, reco_id: Optional[int]) -> Dict[str, Any]:

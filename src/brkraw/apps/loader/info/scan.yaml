@@ -68,7 +68,7 @@ SliceOrient:
 ReadOrient:
   sources:
     - file: method
-      key: PVM_SPackArrSliceOrient
+      key: PVM_SPackArrReadOrient
   transform: convert_to_list
 SliceDistance (mm):
   sources:

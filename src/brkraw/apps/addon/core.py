@@ -5,7 +5,12 @@ Last updated: 2025-12-30
 
 from __future__ import annotations
 
-import importlib.resources as resources
+from importlib import resources
+
+try:
+    resources.files  # type: ignore[attr-defined]
+except AttributeError:  # pragma: no cover - fallback for Python 3.8
+    import importlib_resources as resources  # type: ignore[assignment]
 import logging
 import os
 import re

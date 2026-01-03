@@ -17,7 +17,9 @@ __meta__:
 
 out.some_field:
   sources:
+
     - file: method
+
       key: PVM_SPackArrNSlices
 ```
 
@@ -37,19 +39,29 @@ resolved relative to the spec file.
 `__meta__` is required on every spec. Required fields:
 
 - `name`: python-friendly identifier using lowercase snake_case with up to four tokens.
+
   Pattern: `^[a-z][a-z0-9]*(?:_[a-z0-9]+){0,3}$`.
+
 - `version`: version string (free-form).
+
 - `description`: human-readable summary.
+
 - `category`: category string. For rule-selected specs, use `info_spec` or `metadata_spec`.
 
 Optional fields:
 
 - `transforms_source`: transform file path(s) as string or list of strings.
+
 - `include`: spec include path(s).
+
 - `include_mode`: `override` or `strict`.
+
 - `authors` / `developers`: list of people with `name`, optional `email`, optional `affiliations` list.
+
 - `doi`: DOI string.
+
 - `citation`: citation text.
+
 - `map_file`: mapping file path with per-key mapping rules.
 
 ## Mapping Rules
@@ -67,7 +79,9 @@ __meta__:
 
 Subject.ID:
   sources:
+
     - file: subject
+
       key: SUBJECT_id
 ```
 
@@ -90,20 +104,26 @@ Study.ID:
   type: const
   value: "1"
   override: true
+```
 
 Conditional rules with `when` can create new keys or override existing ones:
 
 ```yaml
 Modality:
+
   - when:
+
       Subject.ID: "XXXX"
       Study.ID: "YYYY"
     value: "T1w"
     override: true
+
   - default: "unknown"
 
 Run:
+
   - when:
+
       Subject.ID: "XXXX"
       ScanID: 13
     value: 1
@@ -114,17 +134,23 @@ Condition operators:
 
 ```yaml
 Protocol:
+
   - when:
+
       Method:
         in: ["EPI", "BOLD"]
     value: "bold"
     override: true
+
   - when:
+
       Method:
         regex: "^T1.*"
     value: "t1w"
     override: true
+
   - when:
+
       Subject.ID:
         not: "sub-000"
     value: "include"
@@ -133,17 +159,22 @@ Protocol:
 Aliases:
 
 - `ScanID` / `scan_id`
+
 - `RecoID` / `reco_id`
-```
 
 Behavior:
 
 - Mapping rules apply automatically when a map file entry matches an output key.
+
 - `override: true` replaces existing values; otherwise values are filled only when missing (default: true).
+
 - `when` supports exact match, `in`, `regex`, and `not` conditions.
+
 - If no match and `default` is provided in the map rule, `default` is used.
+
 - If no match and no `default`, the original value is kept.
- - Rules are evaluated top-to-bottom; the first matching rule wins.
+
+- Rules are evaluated top-to-bottom; the first matching rule wins.
 
 ## Map File Format
 
@@ -161,7 +192,9 @@ Subject.ID:
 Guidelines:
 
 - Top-level keys can match spec output keys or define new keys.
+
 - Mapping rules use `values` plus optional `default`.
+
 - Constant rules use `value`.
 
 To validate a map file:
@@ -177,7 +210,9 @@ Schema: `src/brkraw/schema/map.yaml`
 Rules support:
 
 - `sources`: resolve a value from one or more parameter sources.
+
 - `inputs`: build a dict of named inputs, optionally transformed.
+
 - `transform`: apply a transform (string or list of strings).
 
 Exactly one of `sources` or `inputs` is required.
@@ -196,13 +231,17 @@ result = map_parameters(scan, spec, validate=True)
 When using `inputs`, each input has one of:
 
 - `sources`: list of source selectors.
+
 - `const`: literal value.
+
 - `ref`: dotted path to a previously resolved output value.
 
 Optional modifiers:
 
 - `transform`: apply transform(s) after resolving the input.
+
 - `default`: fallback when sources are missing.
+
 - `required`: if true, missing input raises an error.
 
 Example:
@@ -212,7 +251,9 @@ out.joined:
   inputs:
     a:
       sources:
+
         - file: acqp
+
           key: ACQ_scan_name
     b:
       const: 3
@@ -226,7 +267,9 @@ out.with_default:
   inputs:
     count:
       sources:
+
         - file: visu_pars
+
           key: VisuCoreFrameCount
           reco_id: 1
       default: 1
@@ -238,7 +281,9 @@ out.required_field:
   inputs:
     subject_id:
       sources:
+
         - file: subject
+
           key: SUBJECT_id
       required: true
   transform: as_string
@@ -249,7 +294,9 @@ out.derived:
   inputs:
     base:
       sources:
+
         - file: method
+
           key: PVM_SPackArrNSlices
       transform: to_int
     prior:
@@ -270,7 +317,9 @@ def combine_base_and_prior(base, prior):
 Each `sources` entry supports:
 
 - `file`: one of `method`, `acqp`, `visu_pars`, `reco`, `subject`.
+
 - `key`: parameter name inside that file.
+
 - `reco_id`: used for `visu_pars`/`reco` to select a reco.
 
 If multiple sources are listed, the first available value wins.
@@ -280,6 +329,7 @@ If multiple sources are listed, the first available value wins.
 Transforms are functions referenced by name. When used with `inputs`:
 
 - The first transform receives inputs as kwargs.
+
 - If a list is provided, subsequent transforms receive the previous output.
 
 Example:
@@ -305,4 +355,5 @@ def upper(value):
 When a Study-like object is passed as the source:
 
 - Only `file: subject` is allowed.
+
 - At least one `subject` source must be present.
