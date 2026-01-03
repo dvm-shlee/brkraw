@@ -9,7 +9,11 @@ from .core import (
     add,
     add_rule_data,
     add_spec_data,
+    add_pruner_spec_data,
     install_examples,
+    install_map,
+    resolve_spec_reference,
+    resolve_pruner_spec_reference,
     list_installed,
     remove,
 )
@@ -18,7 +22,11 @@ __all__ = [
     "add",
     "add_rule_data",
     "add_spec_data",
+    "add_pruner_spec_data",
     "install_examples",
+    "install_map",
+    "resolve_spec_reference",
+    "resolve_pruner_spec_reference",
     "list_installed",
     "remove",
 ]

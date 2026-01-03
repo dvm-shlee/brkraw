@@ -1,8 +1,12 @@
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, Optional
 
 import argparse
 import logging
+import shlex
+import subprocess
+from pathlib import Path
+import yaml
 from brkraw.core import config as config_core
 from brkraw.core import formatter
 from brkraw.apps import addon as addon_app
@@ -22,11 +26,15 @@ def _normalize_row(row: Dict[str, str]) -> Dict[str, object]:
     name = row.get("name", "")
     desc = row.get("description", "")
     category = row.get("category", "")
+    version = row.get("version", "")
     name_cell: object = name
     desc_cell: object = desc
     category_cell: object = category
+    version_cell: object = version
     if row.get("name_unknown") == "1":
         name_cell = {"value": name, "color": "gray"}
+    if row.get("version_unknown") == "1":
+        version_cell = {"value": version, "color": "gray"}
     if row.get("description_unknown") == "1":
         desc_cell = {"value": desc, "color": "gray"}
     if row.get("category_unknown") == "1":
@@ -35,6 +43,7 @@ def _normalize_row(row: Dict[str, str]) -> Dict[str, object]:
         "file": row.get("file", ""),
         "category": category_cell,
         "name": name_cell,
+        "version": version_cell,
         "description": desc_cell,
     }
 
@@ -60,11 +69,15 @@ def cmd_list(args: argparse.Namespace) -> int:
     data = addon_app.list_installed(root=args.root)
     width = config_core.output_width(root=args.root)
     rules = data["rules"]
-    columns = ("file", "category", "name", "description")
+    pruner_specs = data.get("pruner_specs", [])
+    columns = ("file", "category", "name", "version", "description")
     transform_columns = ("file", "spec")
+    map_columns = ("file", "spec")
     spec_rows = [_normalize_row(row) for row in data["specs"]]
+    pruner_rows = [_normalize_row(row) for row in pruner_specs]
     rules_rows = [_normalize_row(row) for row in rules]
     transform_rows = [_normalize_transform_row(row) for row in data["transforms"]]
+    map_rows = [_normalize_transform_row(row) for row in data["maps"]]
     category_order = {"info_spec": 0, "metadata_spec": 1, "converter_entrypoint": 2, "<Unknown>": 9}
     spec_rows.sort(
         key=lambda row: (
@@ -78,10 +91,17 @@ def cmd_list(args: argparse.Namespace) -> int:
             str(row.get("name", "")),
         )
     )
+    pruner_rows.sort(
+        key=lambda row: (
+            str(row.get("name", "")),
+            str(row.get("version", "")),
+        )
+    )
     spec_widths = formatter.compute_column_widths(columns, spec_rows)
     rules_widths = formatter.compute_column_widths(columns, rules_rows)
+    pruner_widths = formatter.compute_column_widths(columns, pruner_rows)
     col_widths = {
-        col: max(spec_widths.get(col, 0), rules_widths.get(col, 0))
+        col: max(spec_widths.get(col, 0), rules_widths.get(col, 0), pruner_widths.get(col, 0))
         for col in columns[:-1]
     }
     spec_table = formatter.format_table(
@@ -102,6 +122,15 @@ def cmd_list(args: argparse.Namespace) -> int:
         title_color="yellow",
         col_widths=col_widths,
     )
+    pruner_table = formatter.format_table(
+        "Pruner Specs",
+        columns,
+        pruner_rows,
+        width=width,
+        colors={"file": "gray", "name": "magenta", "description": "gray"},
+        title_color="magenta",
+        col_widths=col_widths,
+    )
     transforms_table = formatter.format_table(
         "Transforms",
         transform_columns,
@@ -110,12 +139,26 @@ def cmd_list(args: argparse.Namespace) -> int:
         colors={"file": "gray", "spec": "cyan"},
         title_color="cyan",
     )
+    maps_table = formatter.format_table(
+        "Maps",
+        map_columns,
+        map_rows,
+        width=width,
+        colors={"file": "gray", "spec": "cyan"},
+        title_color="cyan",
+    )
     logger.info("%s", rules_table)
     logger.info("")
     logger.info("%s", spec_table)
+    if pruner_rows:
+        logger.info("")
+        logger.info("%s", pruner_table)
     if transform_rows:
         logger.info("")
         logger.info("%s", transforms_table)
+    if map_rows:
+        logger.info("")
+        logger.info("%s", maps_table)
     return 0
 
 
@@ -135,6 +178,128 @@ def cmd_rm(args: argparse.Namespace) -> int:
         return 2
     logger.info("Removed %d file(s).", len(removed))
     return 0
+
+
+def cmd_install_map(args: argparse.Namespace) -> int:
+    spec_path = _resolve_spec_path(
+        args.spec,
+        category=args.category,
+        root=args.root,
+    )
+    existing = _read_spec_map_file(spec_path)
+    if existing is not None and not args.force:
+        prompt = f"Spec already has map_file ({existing.name}). Replace? [y/N]: "
+        response = input(prompt).strip().lower()
+        if response not in {"y", "yes"}:
+            logger.info("Cancelled.")
+            return 2
+        args.force = True
+    try:
+        installed = addon_app.install_map(
+            args.map_file,
+            args.spec,
+            category=args.category,
+            force=args.force,
+            root=args.root,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        logger.error("%s", exc)
+        return 2
+    logger.info("Installed %d file(s).", len(installed))
+    return 0
+
+
+def cmd_edit(args: argparse.Namespace) -> int:
+    editor = config_core.resolve_editor_binary(root=args.root)
+    if not editor:
+        logger.error("No editor configured. Set editor or $EDITOR.")
+        return 2
+    paths = config_core.paths(root=args.root)
+    target = _resolve_edit_target(
+        args.target,
+        kind=args.kind,
+        category=args.category,
+        root=args.root,
+        paths=paths,
+    )
+    cmd = shlex.split(editor) + [str(target)]
+    return subprocess.call(cmd)
+
+
+def _resolve_edit_target(
+    target: str,
+    *,
+    kind: Optional[str],
+    category: Optional[str],
+    root: Optional[str],
+    paths: config_core.ConfigPaths,
+) -> Path:
+    candidate = Path(target).expanduser()
+    if candidate.exists():
+        return candidate.resolve()
+    if kind == "spec":
+        return addon_app.resolve_spec_reference(target, category=category, root=root)
+    if kind == "pruner":
+        return addon_app.resolve_pruner_spec_reference(target, root=root)
+    if kind == "rule":
+        return _resolve_rule_target(target, category=category, rules_dir=paths.rules_dir)
+    if kind == "transform":
+        return (paths.transforms_dir / target).resolve()
+    if kind == "map":
+        return (paths.maps_dir / target).resolve()
+    transform_candidate = (paths.transforms_dir / target).resolve()
+    if transform_candidate.exists():
+        return transform_candidate
+    map_candidate = (paths.maps_dir / target).resolve()
+    if map_candidate.exists():
+        return map_candidate
+    pruner_candidate = (paths.pruner_specs_dir / target).resolve()
+    if pruner_candidate.exists():
+        return pruner_candidate
+    try:
+        return addon_app.resolve_spec_reference(target, category=category, root=root)
+    except Exception:
+        try:
+            return addon_app.resolve_pruner_spec_reference(target, root=root)
+        except Exception:
+            return _resolve_rule_target(target, category=category, rules_dir=paths.rules_dir)
+
+
+def _resolve_spec_path(target: str, *, category: Optional[str], root: Optional[str]) -> Path:
+    return addon_app.resolve_spec_reference(target, category=category, root=root)
+
+
+def _read_spec_map_file(spec_path: Path) -> Optional[Path]:
+    data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return None
+    meta = data.get("__meta__")
+    if not isinstance(meta, dict):
+        return None
+    map_file = meta.get("map_file")
+    if not isinstance(map_file, str) or not map_file:
+        return None
+    path = Path(map_file)
+    if not path.is_absolute():
+        path = (spec_path.parent / path).resolve()
+    return path
+
+
+def _resolve_rule_target(target: str, *, category: Optional[str], rules_dir: Path) -> Path:
+    candidate = (rules_dir / target).resolve()
+    if candidate.exists():
+        return candidate
+    rules = addon_app.list_installed(root=str(rules_dir.parent)).get("rules", [])
+    matches = [
+        entry for entry in rules
+        if entry.get("name") == target and (category is None or entry.get("category") == category)
+    ]
+    files = sorted({entry.get("file") for entry in matches if entry.get("file")})
+    if len(files) == 1:
+        return (rules_dir / files[0]).resolve()
+    if not files:
+        raise FileNotFoundError(target)
+    raise ValueError(f"Multiple rule files match {target}: {', '.join(files)}")
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[name-defined]
@@ -160,7 +325,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
     rm_parser.add_argument("filename", help="Spec/rule filename to remove.")
     rm_parser.add_argument(
         "--kind",
-        choices=["spec", "rule", "transform"],
+        choices=["spec", "pruner", "rule", "transform", "map"],
         help="Limit removal to a specific kind.",
     )
     rm_parser.add_argument(
@@ -169,3 +334,84 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         help="Remove even if dependencies are detected.",
     )
     rm_parser.set_defaults(addon_func=cmd_rm)
+
+    attach_map_parser = addon_sub.add_parser(
+        "attach-map",
+        help="Attach a map file to an installed spec.",
+    )
+    attach_map_parser.add_argument("map_file", help="Map YAML file.")
+    attach_map_parser.add_argument("spec", help="Installed spec name or filename.")
+    attach_map_parser.add_argument(
+        "--category",
+        help="Spec category hint (e.g. info_spec, metadata_spec).",
+    )
+    attach_map_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing map_file without prompting.",
+    )
+    attach_map_parser.set_defaults(addon_func=cmd_install_map)
+
+    attach_map_alias = addon_sub.add_parser(
+        "attach_map",
+        help="Alias of attach-map.",
+    )
+    attach_map_alias.add_argument("map_file", help="Map YAML file.")
+    attach_map_alias.add_argument("spec", help="Installed spec name or filename.")
+    attach_map_alias.add_argument(
+        "--category",
+        help="Spec category hint (e.g. info_spec, metadata_spec).",
+    )
+    attach_map_alias.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing map_file without prompting.",
+    )
+    attach_map_alias.set_defaults(addon_func=cmd_install_map)
+
+    install_map_alias = addon_sub.add_parser(
+        "install-map",
+        help="Alias of attach-map.",
+    )
+    install_map_alias.add_argument("map_file", help="Map YAML file.")
+    install_map_alias.add_argument("spec", help="Installed spec name or filename.")
+    install_map_alias.add_argument(
+        "--category",
+        help="Spec category hint (e.g. info_spec, metadata_spec).",
+    )
+    install_map_alias.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing map_file without prompting.",
+    )
+    install_map_alias.set_defaults(addon_func=cmd_install_map)
+
+    install_map_underscore = addon_sub.add_parser(
+        "install_map",
+        help="Alias of attach-map.",
+    )
+    install_map_underscore.add_argument("map_file", help="Map YAML file.")
+    install_map_underscore.add_argument("spec", help="Installed spec name or filename.")
+    install_map_underscore.add_argument(
+        "--category",
+        help="Spec category hint (e.g. info_spec, metadata_spec).",
+    )
+    install_map_underscore.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing map_file without prompting.",
+    )
+    install_map_underscore.set_defaults(addon_func=cmd_install_map)
+
+    edit_parser = addon_sub.add_parser("edit", help="Edit an installed spec or rule.")
+    edit_parser.add_argument("target", help="Spec/rule name or filename.")
+    edit_parser.add_argument(
+        "--kind",
+        choices=["spec", "pruner", "rule", "transform", "map"],
+        help="Target kind (default: auto-detect).",
+    )
+    edit_parser.add_argument(
+        "--category",
+        help="Spec/rule category hint (e.g. info_spec, metadata_spec).",
+    )
+    edit_parser.set_defaults(addon_func=cmd_edit)
