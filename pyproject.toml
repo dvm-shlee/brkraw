@@ -64,7 +64,6 @@ sources = ["src"]
 
 [tool.hatch.build.targets.wheel]
 artifacts = ["LICENSE"]
-include = ["src/brkraw/assets/**"]
 
 [tool.pytest.ini_options]
 log_cli = true
