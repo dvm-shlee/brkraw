@@ -17,6 +17,7 @@ dependencies = [
     "nibabel",
     "PyYAML",
     "jsonschema",
+    "importlib-resources>=5; python_version < '3.9'",
     "typing_extensions",
 ]
 license = {text = "GNLv3"}
