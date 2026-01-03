@@ -1,0 +1,44 @@
+site_name: BrkRaw
+site_description: Bruker Paravision dataset loader and NIfTI converter
+site_url: https://brkraw.github.io/
+repo_url: https://github.com/BrkRaw/brkraw
+repo_name: BrkRaw/brkraw
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.sections
+    - search.highlight
+    - search.share
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting Started: Getting-Started.md
+  - Configuration: Config.md
+  - CLI:
+      - Overview: cli/CLI-info_and_params.md
+      - Session helpers: cli/CLI-set_unset_and_env.md
+      - Tonii commands: cli/CLI-tonii_and_tonii_all.md
+      - Addons: cli/CLI-addon.md
+      - Config: cli/CLI-config.md
+      - Prune: cli/CLI-prune.md
+  - Python API: Python-API.md
+  - API Reference:
+      - Addon API: api/API-Addon.md
+      - Output Format API: api/API-Output-Format.md
+      - Pruner API: api/API-Pruner.md
+  - Rules and Specs:
+      - Rule Syntax: RULE-Syntax.md
+      - Spec Syntax: SPEC-Syntax.md
+  - Addons and Plugins: Addons-and-Plugins.md
