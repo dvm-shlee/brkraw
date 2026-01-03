@@ -9,8 +9,10 @@ for nesting):
 
 ```yaml
 __meta__:
-  name: "MRS Info Spec"
+  name: "mrs"
+  version: "1.0.0"
   description: "Metadata mapping for PRESS/STEAM scans."
+  category: "info_spec"
   transforms_source: "mrs_transforms.py"
 
 out.some_field:
@@ -27,6 +29,150 @@ like `study.yaml` with multiple sections, put `__meta__` under each section.
 relative/absolute spec paths to merge before the current spec. Keys in the
 current spec override included keys unless `__meta__.include_mode` is set to
 `strict`, which raises on conflicts.
+`__meta__.map_file` is optional. When present, it points to a YAML mapping file
+resolved relative to the spec file.
+
+## Meta Fields
+
+`__meta__` is required on every spec. Required fields:
+
+- `name`: python-friendly identifier using lowercase snake_case with up to four tokens.
+  Pattern: `^[a-z][a-z0-9]*(?:_[a-z0-9]+){0,3}$`.
+- `version`: version string (free-form).
+- `description`: human-readable summary.
+- `category`: category string. For rule-selected specs, use `info_spec` or `metadata_spec`.
+
+Optional fields:
+
+- `transforms_source`: transform file path(s) as string or list of strings.
+- `include`: spec include path(s).
+- `include_mode`: `override` or `strict`.
+- `authors` / `developers`: list of people with `name`, optional `email`, optional `affiliations` list.
+- `doi`: DOI string.
+- `citation`: citation text.
+- `map_file`: mapping file path with per-key mapping rules.
+
+## Mapping Rules
+
+Specs can apply lookup tables without writing Python transforms. Provide
+`__meta__.map_file` and define per-key mapping rules inside the map file.
+
+```yaml
+__meta__:
+  name: "metadata_anat"
+  version: "1.0.0"
+  description: "..."
+  category: "metadata_spec"
+  map_file: "maps.yaml"
+
+Subject.ID:
+  sources:
+    - file: subject
+      key: SUBJECT_id
+```
+
+`maps.yaml`:
+
+```yaml
+Subject.ID:
+  type: mapping
+  values:
+    1: "test1"
+    2: "test2"
+  default: "unknown"
+  override: false
+```
+
+You can also use constants:
+
+```yaml
+Study.ID:
+  type: const
+  value: "1"
+  override: true
+
+Conditional rules with `when` can create new keys or override existing ones:
+
+```yaml
+Modality:
+  - when:
+      Subject.ID: "XXXX"
+      Study.ID: "YYYY"
+    value: "T1w"
+    override: true
+  - default: "unknown"
+
+Run:
+  - when:
+      Subject.ID: "XXXX"
+      ScanID: 13
+    value: 1
+    override: true
+```
+
+Condition operators:
+
+```yaml
+Protocol:
+  - when:
+      Method:
+        in: ["EPI", "BOLD"]
+    value: "bold"
+    override: true
+  - when:
+      Method:
+        regex: "^T1.*"
+    value: "t1w"
+    override: true
+  - when:
+      Subject.ID:
+        not: "sub-000"
+    value: "include"
+```
+
+Aliases:
+
+- `ScanID` / `scan_id`
+- `RecoID` / `reco_id`
+```
+
+Behavior:
+
+- Mapping rules apply automatically when a map file entry matches an output key.
+- `override: true` replaces existing values; otherwise values are filled only when missing (default: true).
+- `when` supports exact match, `in`, `regex`, and `not` conditions.
+- If no match and `default` is provided in the map rule, `default` is used.
+- If no match and no `default`, the original value is kept.
+ - Rules are evaluated top-to-bottom; the first matching rule wins.
+
+## Map File Format
+
+Map files map output keys to rule objects or rule lists:
+
+```yaml
+Subject.ID:
+  type: mapping
+  values:
+    1: "test1"
+    2: "test2"
+  default: "unknown"
+```
+
+Guidelines:
+
+- Top-level keys can match spec output keys or define new keys.
+- Mapping rules use `values` plus optional `default`.
+- Constant rules use `value`.
+
+To validate a map file:
+
+```python
+from brkraw.specs.remapper import validate_map_file
+
+validate_map_file("specs/maps.yaml")
+```
+
+Schema: `src/brkraw/schema/map.yaml`
 
 Rules support:
 

@@ -43,6 +43,19 @@ meta = loader.get_metadata(3, reco_id=1)
 print(meta)
 ```
 
+To capture the spec metadata used during resolution:
+
+```python
+meta, spec_info = loader.get_metadata(3, reco_id=1, return_spec=True)
+print(spec_info["name"], spec_info.get("version"))
+```
+
+Override map file:
+
+```python
+meta = loader.get_metadata(3, reco_id=1, map_file="maps.yaml")
+```
+
 ## Parameter search
 
 ```python

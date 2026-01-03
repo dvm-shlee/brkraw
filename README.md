@@ -13,10 +13,19 @@ tools are not shipped in the main repository; these extras will return as
 independently installable CLI plugins. The core CLI and Python API are
 available now.
 
-## Installation (placeholder)
+## Installation
 
-Installation docs will be added once the project is published on PyPI and the
-repository setup is finalized.
+Install from GitHub:
+
+```bash
+pip install git+https://github.com/BrkRaw/brkraw.git
+```
+
+For development:
+
+```bash
+pip install -e .
+```
 
 See `docs/Getting-Started.md` for setup and first-run steps.
 
@@ -46,14 +55,20 @@ See `docs/Addons-and-Plugins.md` for a full overview and examples in
 ## CLI documentation
 
 - `docs/Getting-Started.md`: install and first-run steps
-- `docs/CLI-info_and_params.md`: `brkraw info` and `brkraw params`
-- `docs/CLI-set_unset_and_env.md`: `brkraw set`, `brkraw unset`, `brkraw env`
-- `docs/CLI-tonii_and_tonii_all.md`: `brkraw tonii` and `brkraw tonii_all`
-- `docs/CLI-addon.md`: addon management
-- `docs/CLI-config.md`: config management
+- `docs/cli/CLI-info_and_params.md`: `brkraw info` and `brkraw params`
+- `docs/cli/CLI-set_unset_and_env.md`: `brkraw session` helpers
+- `docs/cli/CLI-tonii_and_tonii_all.md`: `brkraw tonii` and `brkraw tonii_all`
+- `docs/cli/CLI-addon.md`: addon management
+- `docs/cli/CLI-config.md`: config management
 - `docs/Config.md`: `config.yaml` reference
 - `docs/Addons-and-Plugins.md`: rules, specs, converters, and CLI plugins
 - `docs/Python-API.md`: Python API usage examples
+
+## API documentation
+
+- `docs/api/API-Addon.md`: addon API
+- `docs/api/API-Output-Format.md`: output format API
+- `docs/api/API-Pruner.md`: pruner API
 
 ## Rules and specs
 
