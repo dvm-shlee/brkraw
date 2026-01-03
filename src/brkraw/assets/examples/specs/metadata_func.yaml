@@ -1,6 +1,8 @@
 __meta__:
-  name: "Bruker Metadata Func"
+  name: "metadata_func"
+  version: "1.0.0"
   description: "Functional (EPI) metadata mapping for BIDS 1.10.1."
+  category: "metadata_spec"
   include:
     - "metadata_common.yaml"
 

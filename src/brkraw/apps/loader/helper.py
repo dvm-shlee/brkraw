@@ -427,6 +427,7 @@ def _get_metadata(
     self,
     reco_id: int = 1,
     spec: Optional[Union[Mapping[str, Any], str, Path]] = None,
+    map_file: Optional[Union[str, Path]] = None,
     return_spec: bool = False,
 ):
     """Resolve metadata using a remapper spec.
@@ -435,6 +436,7 @@ def _get_metadata(
         self: Scan instance.
         reco_id: Reco identifier (default: 1).
         spec: Optional spec mapping or spec file path.
+        map_file: Optional mapping file override.
         return_spec: If True, return spec info alongside metadata.
 
     Returns:
@@ -449,12 +451,13 @@ def _get_metadata(
             return None, None
         return None
     spec_data, transforms, spec_path = resolved
-    metadata = map_parameters(scan, spec_data, transforms, validate=False)
+    metadata = map_parameters(scan, spec_data, transforms, validate=False, map_file=map_file)
     if not return_spec:
         return metadata
     meta = spec_data.get("__meta__")
     name = meta.get("name") if isinstance(meta, dict) else None
-    spec_info = {"path": spec_path, "name": name}
+    version = meta.get("version") if isinstance(meta, dict) else None
+    spec_info = {"path": spec_path, "name": name, "version": version}
     return metadata, spec_info
 
 

@@ -349,6 +349,7 @@ class BrukerLoader:
         scan_id: int,
         reco_id: int = 1,
         spec: Optional[Union[Mapping[str, Any], str, Path]] = None,
+        map_file: Optional[Union[str, Path]] = None,
         return_spec: bool = False,
     ):
         """Return metadata for a scan/reco.
@@ -357,6 +358,7 @@ class BrukerLoader:
             scan_id: Scan identifier.
             reco_id: Reco identifier (default: 1).
             spec: Optional spec mapping or spec file path.
+            map_file: Optional mapping file override.
             return_spec: If True, return spec info alongside metadata.
 
         Returns:
@@ -364,7 +366,12 @@ class BrukerLoader:
             return_spec is True, returns (metadata, spec_info).
         """
         scan = self.get_scan(scan_id)
-        return scan.get_metadata(reco_id=reco_id, spec=spec, return_spec=return_spec)
+        return scan.get_metadata(
+            reco_id=reco_id,
+            spec=spec,
+            map_file=map_file,
+            return_spec=return_spec,
+        )
 
     def prune_to_zip(
         self,

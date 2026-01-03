@@ -38,6 +38,21 @@ def _resolve_spec_path(use: str, base: Path) -> Path:
     return base / "specs" / candidate
 
 
+def _resolve_rule_use(rule: Dict[str, Any], *, base: Path) -> Optional[Path]:
+    use = rule.get("use")
+    if not isinstance(use, str):
+        return None
+    version = rule.get("version") if isinstance(rule.get("version"), str) else None
+    category = rule.get("__category__") if isinstance(rule.get("__category__"), str) else None
+    try:
+        from ...apps.addon.core import resolve_spec_reference
+    except Exception:
+        resolve_spec_reference = None
+    if resolve_spec_reference is None:
+        return _resolve_spec_path(use, base)
+    return resolve_spec_reference(use, category=category, version=version, root=base)
+
+
 def _resolve_operand(value: Any, bindings: Dict[str, Any]) -> Any:
     if isinstance(value, str) and value.startswith("$"):
         return bindings.get(value[1:])
@@ -117,8 +132,8 @@ def _load_rule_transforms(rule: Dict[str, Any], base: Path) -> Dict[str, Any]:
     if isinstance(spec_path, Path):
         _, transforms = load_spec(spec_path, validate=False)
         return transforms
-    spec_path = _resolve_spec_path(use, base)
-    if spec_path.exists():
+    spec_path = _resolve_rule_use(rule, base=base)
+    if isinstance(spec_path, Path) and spec_path.exists():
         _, transforms = load_spec(spec_path, validate=False)
         return transforms
     return {}
@@ -190,11 +205,12 @@ def load_rules(
                     for item in items:
                         if not isinstance(item, dict):
                             continue
+                        item["__category__"] = key
                         use = item.get("use")
                         if not isinstance(use, str):
                             continue
-                        spec_path = _resolve_spec_path(use, base)
-                        if not spec_path.exists():
+                        spec_path = _resolve_rule_use(item, base=base)
+                        if not isinstance(spec_path, Path) or not spec_path.exists():
                             if validate:
                                 raise FileNotFoundError(spec_path)
                             continue

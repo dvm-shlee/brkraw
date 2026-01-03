@@ -1,6 +1,8 @@
 __meta__:
-  name: "MRS Info Spec"
+  name: "mrs"
+  version: "1.0.0"
   description: "Metadata mapping for PRESS/STEAM/SLASER sequences."
+  category: "info_spec"
   transforms_source: "mrs_transforms.py"
 
 Method:

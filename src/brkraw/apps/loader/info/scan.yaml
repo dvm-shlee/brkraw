@@ -1,4 +1,8 @@
 __meta__:
+  name: "scan_info"
+  version: "1.0.0"
+  description: "Scan-level info mapping for Bruker datasets."
+  category: "info_spec"
   transforms_source: "transform.py"
 
 Method:
@@ -84,4 +88,3 @@ NumRepeat:
   sources:
     - file: method
       key: PVM_NRepetitions
-
