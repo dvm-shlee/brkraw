@@ -7,25 +7,45 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import yaml
-from .. import __version__
 
 ENV_CONFIG_HOME = "BRKRAW_CONFIG_HOME"
 DEFAULT_PROFILE_DIRNAME = ".brkraw"
+CONFIG_VERSION = 0
+
 DEFAULT_CONFIG_YAML = """# brkraw user configuration
 # This file is optional. Delete it to fall back to package defaults.
 # You can override the config root by setting BRKRAW_CONFIG_HOME.
-brkraw_version: "{version}"
-config_spec_version: 0
-log_level: INFO
-output_width: 120
-# nifti_filename_template: "sub-<Subject.ID>_study-<Study.ID>_scan-<ScanID>_<Protocol>"
-# Available tags: <Subject.ID>, <Study.ID>, <ScanID>, <Method>, <Protocol>
-# Values come from `brkraw info` fields. Invalid filename characters are removed.
-nifti_filename_template: "sub-<Subject.ID>_study-<Study.ID>_scan-<ScanID>_<Protocol>"
-# float_decimals: 6
+config_version: 0
+
+# Editor command used by brkraw config/addon edit.
+editor: null
+
+logging:
+  level: INFO
+  print_width: 120
+
+output:
+  # output.format_fields defines how NIfTI filenames are built.
+  format_fields:
+    - key: Subject.ID
+      entry: sub
+      hide: false
+    - key: Study.ID
+      entry: study
+      hide: false
+    - key: ScanID
+      entry: scan
+      hide: false
+    - key: Protocol
+      hide: true
+  format_spec: null
+  # float_decimals: 6
+
 # rules_dir: rules
 # specs_dir: specs
+# pruner_specs_dir: pruner_specs
 # transforms_dir: transforms
+# maps_dir: maps
 """
 
 
@@ -34,8 +54,10 @@ class ConfigPaths:
     root: Path
     config_file: Path
     specs_dir: Path
+    pruner_specs_dir: Path
     rules_dir: Path
     transforms_dir: Path
+    maps_dir: Path
 
 
 def resolve_root(root: Optional[Union[str, Path]] = None) -> Path:
@@ -53,8 +75,10 @@ def get_paths(root: Optional[Union[str, Path]] = None) -> ConfigPaths:
         root=base,
         config_file=base / "config.yaml",
         specs_dir=base / "specs",
+        pruner_specs_dir=base / "pruner_specs",
         rules_dir=base / "rules",
         transforms_dir=base / "transforms",
+        maps_dir=base / "maps",
     )
 
 
@@ -68,8 +92,10 @@ def get_path(name: str, root: Optional[Union[str, Path]] = None) -> Path:
         "root": paths_obj.root,
         "config": paths_obj.config_file,
         "specs": paths_obj.specs_dir,
+        "pruner_specs": paths_obj.pruner_specs_dir,
         "rules": paths_obj.rules_dir,
         "transforms": paths_obj.transforms_dir,
+        "maps": paths_obj.maps_dir,
     }
     if name not in mapping:
         raise KeyError(f"Unknown config path: {name}")
@@ -92,13 +118,12 @@ def ensure_initialized(
         raise FileExistsError(paths.root)
     paths.root.mkdir(parents=True, exist_ok=True)
     paths.specs_dir.mkdir(parents=True, exist_ok=True)
+    paths.pruner_specs_dir.mkdir(parents=True, exist_ok=True)
     paths.rules_dir.mkdir(parents=True, exist_ok=True)
     paths.transforms_dir.mkdir(parents=True, exist_ok=True)
+    paths.maps_dir.mkdir(parents=True, exist_ok=True)
     if create_config and not paths.config_file.exists():
-        paths.config_file.write_text(
-            DEFAULT_CONFIG_YAML.format(version=__version__),
-            encoding="utf-8",
-        )
+        paths.config_file.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
     return paths
 
 
@@ -128,13 +153,61 @@ def load(root: Optional[Union[str, Path]] = None) -> Optional[Dict[str, Any]]:
     return load_config(root=root)
 
 
+def write_config(data: Dict[str, Any], root: Optional[Union[str, Path]] = None) -> None:
+    data = _normalize_config(dict(data))
+    data["config_version"] = CONFIG_VERSION
+    paths = ensure_initialized(root=root, create_config=False, exist_ok=True)
+    paths.config_file.write_text(
+        yaml.safe_dump(data, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def reset_config(root: Optional[Union[str, Path]] = None) -> None:
+    paths = ensure_initialized(root=root, create_config=False, exist_ok=True)
+    paths.config_file.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
+
+
+def default_config() -> Dict[str, Any]:
+    data = yaml.safe_load(DEFAULT_CONFIG_YAML)
+    if not isinstance(data, dict):
+        return {}
+    return _normalize_config(data)
+
+
+def resolve_config(root: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+    defaults = default_config()
+    overrides = _normalize_config(load(root=root) or {})
+    overrides.pop("nifti_filename_template", None)
+    overrides.pop("output_format", None)
+    overrides["config_version"] = CONFIG_VERSION
+    defaults.pop("nifti_filename_template", None)
+    defaults.pop("output_format", None)
+    return _deep_merge(defaults, overrides)
+
+
+def resolve_editor_binary(root: Optional[Union[str, Path]] = None) -> Optional[str]:
+    config = resolve_config(root=root)
+    editor = config.get("editor")
+    if not isinstance(editor, str) or not editor.strip():
+        editor = config.get("editor_binary")
+    if isinstance(editor, str) and editor.strip():
+        return editor.strip()
+    env_editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if isinstance(env_editor, str) and env_editor.strip():
+        return env_editor.strip()
+    return None
+
+
 def clear_config(
     root: Optional[Union[str, Path]] = None,
     *,
     keep_config: bool = False,
     keep_rules: bool = False,
     keep_specs: bool = False,
+    keep_pruner_specs: bool = False,
     keep_transforms: bool = False,
+    keep_maps: bool = False,
 ) -> None:
     paths = get_paths(root=root)
     if not paths.root.exists():
@@ -145,8 +218,12 @@ def clear_config(
         _remove_tree(paths.rules_dir)
     if paths.specs_dir.exists() and not keep_specs:
         _remove_tree(paths.specs_dir)
+    if paths.pruner_specs_dir.exists() and not keep_pruner_specs:
+        _remove_tree(paths.pruner_specs_dir)
     if paths.transforms_dir.exists() and not keep_transforms:
         _remove_tree(paths.transforms_dir)
+    if paths.maps_dir.exists() and not keep_maps:
+        _remove_tree(paths.maps_dir)
     try:
         paths.root.rmdir()
     except OSError:
@@ -159,14 +236,18 @@ def clear(
     keep_config: bool = False,
     keep_rules: bool = False,
     keep_specs: bool = False,
+    keep_pruner_specs: bool = False,
     keep_transforms: bool = False,
+    keep_maps: bool = False,
 ) -> None:
     clear_config(
         root=root,
         keep_config=keep_config,
         keep_rules=keep_rules,
         keep_specs=keep_specs,
+        keep_pruner_specs=keep_pruner_specs,
         keep_transforms=keep_transforms,
+        keep_maps=keep_maps,
     )
 
 
@@ -176,9 +257,9 @@ def configure_logging(
     level: Optional[Union[str, int]] = None,
     stream=None,
 ) -> logging.Logger:
-    config = load(root=root) or {}
+    config = resolve_config(root=root)
     if level is None:
-        level = config.get("log_level", "INFO")
+        level = config.get("logging", {}).get("level", "INFO")
     if isinstance(level, str):
         level = getattr(logging, level.upper(), logging.INFO)
     if not logging.getLogger().handlers:
@@ -191,8 +272,8 @@ def configure_logging(
 
 
 def output_width(root: Optional[Union[str, Path]] = None, default: int = 120) -> int:
-    config = load(root=root) or {}
-    width = config.get("output_width", default)
+    config = resolve_config(root=root)
+    width = config.get("logging", {}).get("print_width", default)
     try:
         return int(width)
     except (TypeError, ValueError):
@@ -200,8 +281,9 @@ def output_width(root: Optional[Union[str, Path]] = None, default: int = 120) ->
 
 
 def float_decimals(root: Optional[Union[str, Path]] = None, default: int = 6) -> int:
-    config = load(root=root) or {}
-    decimals = config.get("float_decimals", default)
+    config = resolve_config(root=root)
+    output_cfg = config.get("output", {})
+    decimals = output_cfg.get("float_decimals", config.get("float_decimals", default))
     try:
         return int(decimals)
     except (TypeError, ValueError):
@@ -212,13 +294,71 @@ def affine_decimals(root: Optional[Union[str, Path]] = None, default: int = 6) -
     return float_decimals(root=root, default=default)
 
 
-def nifti_filename_template(
+def output_format_template(
     root: Optional[Union[str, Path]] = None,
     default: str = "sub-<Subject.ID>_study-<Study.ID>_scan-<ScanID>_<Protocol>",
 ) -> str:
-    config = load(root=root) or {}
-    template = config.get("nifti_filename_template", default)
-    return str(template)
+    config = resolve_config(root=root)
+    return str(config.get("output_format", default))
+
+
+def output_format_fields(
+    root: Optional[Union[str, Path]] = None,
+    default: Optional[list] = None,
+) -> list:
+    config = resolve_config(root=root)
+    fields = config.get("output", {}).get("format_fields")
+    if isinstance(fields, list):
+        return fields
+    if default is None:
+        default = default_config().get("output", {}).get("format_fields", [])
+    return list(default) if isinstance(default, list) else []
+
+
+def output_format_spec(root: Optional[Union[str, Path]] = None) -> Optional[str]:
+    config = resolve_config(root=root)
+    value = config.get("output", {}).get("format_spec")
+    return str(value) if isinstance(value, str) and value else None
+
+
+def _normalize_config(data: Dict[str, Any]) -> Dict[str, Any]:
+    config = dict(data)
+    logging_cfg = dict(config.get("logging") or {})
+    output_cfg = dict(config.get("output") or {})
+
+    config.pop("output_format", None)
+    if "log_level" in config and "level" not in logging_cfg:
+        logging_cfg["level"] = config.pop("log_level")
+    if "output_width" in config and "print_width" not in logging_cfg:
+        logging_cfg["print_width"] = config.pop("output_width")
+    if "output_format_fields" in config and "format_fields" not in output_cfg:
+        output_cfg["format_fields"] = config.pop("output_format_fields")
+    if "output_format_spec" in config and "format_spec" not in output_cfg:
+        output_cfg["format_spec"] = config.pop("output_format_spec")
+    if "float_decimals" in config and "float_decimals" not in output_cfg:
+        output_cfg["float_decimals"] = config.pop("float_decimals")
+    if "editor_binary" in config and "editor" not in config:
+        config["editor"] = config.pop("editor_binary")
+
+    if logging_cfg:
+        config["logging"] = logging_cfg
+    if output_cfg:
+        config["output"] = output_cfg
+    return config
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if (
+            key in merged
+            and isinstance(merged[key], dict)
+            and isinstance(value, dict)
+        ):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _remove_tree(path: Path) -> None:

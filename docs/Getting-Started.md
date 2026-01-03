@@ -2,14 +2,24 @@
 
 This guide covers the minimum setup steps and common first-run tasks.
 
-## Install BrkRaw (placeholder)
+## Install BrkRaw
 
-Installation instructions will be added once the project is published on PyPI.
+Install from GitHub:
+
+```bash
+pip install git+https://github.com/BrkRaw/brkraw.git
+```
+
+For development:
+
+```bash
+pip install -e .
+```
 
 ## Initialize the config directory
 
 Run the initializer to create the config root, `config.yaml`, and default
-folders for rules/specs/transforms.
+folders for rules/specs/transforms/maps.
 
 ```bash
 brkraw init
@@ -22,6 +32,9 @@ Optional flags:
 - `--no-exist-ok` to fail if the root already exists.
 - `--install-example` to install the example rules/specs from `assets/examples`.
 - `--shell-rc` to append shell helper functions to a specific rc file.
+- `--yes` to skip prompts and accept defaults.
+
+By default, `brkraw init` prompts for config values and optional installs.
 
 ## Add example specs and rules
 
@@ -68,5 +81,11 @@ Convert a scan to NIfTI:
 brkraw tonii /path/to/dataset.zip -s 1
 ```
 
-See `docs/CLI-info_and_params.md` and `docs/CLI-tonii_and_tonii_all.md` for
+Prune a dataset:
+
+```bash
+brkraw prune /path/to/dataset.zip --spec specs/prune.yaml --output /path/to/pruned.zip
+```
+
+See `docs/cli/CLI-info_and_params.md` and `docs/cli/CLI-tonii_and_tonii_all.md` for
 additional options.

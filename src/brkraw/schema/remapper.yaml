@@ -5,11 +5,8 @@ type: object
 properties:
   __meta__:
     type: object
+    additionalProperties: true
     properties:
-      name:
-        type: string
-      description:
-        type: string
       transforms_source:
         anyOf:
           - type: string
@@ -27,7 +24,8 @@ properties:
         enum:
           - override
           - strict
-    additionalProperties: false
+required:
+  - __meta__
 additionalProperties:
   $ref: "#/$defs/Rule"
 
@@ -49,6 +47,7 @@ $defs:
           - type: array
             items: { type: string }
         description: "Transform name(s) to apply. Arrays execute in order."
+      default: {}
     additionalProperties: false
     oneOf:
       - required: ["sources"]

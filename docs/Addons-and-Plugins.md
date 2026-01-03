@@ -23,6 +23,13 @@ Specs define how parameters are mapped into structured outputs:
 - `metadata_spec` controls how `get_metadata` builds sidecar JSON (for example,
   a BIDS-like schema).
 
+Each spec must include a `__meta__` block with required fields:
+
+- `name`, `version`, `description`, `category`
+
+`category` should be `info_spec` or `metadata_spec` when the spec is selected
+by rules. Specs may also include optional author/developer and citation fields.
+
 ### Converter entrypoints
 
 Converter entrypoints provide optional override callables for:
@@ -53,10 +60,12 @@ if method/acqp/visu parameters match X
 
 ## Managing addons
 
-Rules, specs, and transforms live in the config folder. Use the `addon` CLI to
-install, list, and remove them:
+Rules, specs, and transforms live in the config folder. Pruner specs are kept
+under `pruner_specs/`. Use the `addon` CLI to install, list, and remove them.
+Mapping files live in the `maps/` folder and are managed alongside specs:
 
 - `brkraw addon add path/to/spec.yaml`
+- `brkraw addon attach-map path/to/maps.yaml metadata_common`
 - `brkraw addon list`
 - `brkraw addon rm "spec.yaml" --force`
 
@@ -64,6 +73,12 @@ See `assets/examples/` for working examples, including:
 
 - MRS `info_spec` for controlling `brkraw info`
 - `metadata_spec` for BIDS-like sidecar metadata
+
+See `docs/api/API-Addon.md` for the addon API reference.
+
+Rules can reference specs by name (recommended) or by path. When a name is
+used, the rule category must match `__meta__.category`, and `version` can be
+specified to pin the selection; otherwise the latest version is used.
 
 ## Converter entrypoint roadmap
 

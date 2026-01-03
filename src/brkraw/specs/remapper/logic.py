@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from collections.abc import Mapping
 import inspect
+import re
 from types import ModuleType
 from typing import Any, Callable, Optional, List, Dict, Tuple, Set, Union
 import yaml
-from .validator import validate_spec
+from .validator import validate_spec, validate_map_data
+
+_MISSING = object()
 
 
 def _load_transforms_from_source(src: str) -> Dict[str, Callable[[Any], Any]]:
@@ -156,6 +159,7 @@ def load_spec(
         validate_spec(spec, transforms_source=transforms_path)
 
     transforms: Dict[str, Callable] = {}
+    _attach_spec_path_meta(spec, spec_path)
     if not transforms_path:
         return spec, transforms
 
@@ -163,6 +167,18 @@ def load_spec(
         transforms_text = path.read_text(encoding="utf-8")
         transforms.update(_load_transforms_from_source(transforms_text))
     return spec, transforms
+
+
+def _attach_spec_path_meta(spec: Dict[str, Any], spec_path: Path) -> None:
+    meta = spec.get("__meta__")
+    if isinstance(meta, dict):
+        meta["__spec_path__"] = str(spec_path)
+    for value in spec.values():
+        if not isinstance(value, dict):
+            continue
+        child_meta = value.get("__meta__")
+        if isinstance(child_meta, dict):
+            child_meta["__spec_path__"] = str(spec_path)
 
 
 def _get_params_from_map(params_map: Mapping[str, Any], file: str, reco_id: Optional[int]):
@@ -433,6 +449,7 @@ def map_parameters(
     transforms: Optional[Dict[str, Callable]] = None,
     *,
     validate: bool = False,
+    map_file: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     """Map parameters to a nested dict according to spec rules.
 
@@ -441,6 +458,7 @@ def map_parameters(
         spec: Mapping of output keys to resolution rules.
         transforms: Transform registry used by rules (optional).
         validate: If True, validate the spec before mapping.
+        map_file: Optional mapping file override.
 
     Returns:
         Nested dictionary of mapped outputs.
@@ -455,6 +473,7 @@ def map_parameters(
         _enforce_study_rules(spec)
     if transforms is None:
         transforms = {}
+    map_data = _load_map_data(spec, map_file=map_file)
     result: Dict[str, Any] = {}
     for out_key, rule in spec.items():
         if out_key == "__meta__":
@@ -477,7 +496,210 @@ def map_parameters(
         except Exception as exc:
             msg = f"Error mapping {out_key!r} with rule {rule!r}: {exc}"
             raise type(exc)(msg) from exc
+    if map_data:
+        result = _apply_map_rules(result, map_data, source)
     return result
+
+
+def _load_map_data(
+    spec: Mapping[str, Any],
+    *,
+    map_file: Optional[Union[str, Path]],
+) -> Dict[str, Any]:
+    meta = spec.get("__meta__") if isinstance(spec, Mapping) else None
+    override_path = _resolve_map_path(map_file, base=None)
+    if override_path is not None:
+        return _read_map_file(override_path)
+    if not isinstance(meta, Mapping):
+        return {}
+    meta_path = meta.get("map_file")
+    spec_path = meta.get("__spec_path__")
+    base = Path(spec_path).parent if isinstance(spec_path, str) else None
+    resolved = _resolve_map_path(meta_path, base=base)
+    if resolved is None:
+        return {}
+    return _read_map_file(resolved)
+
+
+def _resolve_map_path(
+    value: Optional[Union[str, Path]],
+    *,
+    base: Optional[Path],
+) -> Optional[Path]:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        if base is not None:
+            path = (base / path).resolve()
+        else:
+            path = path.resolve()
+    if not path.exists():
+        raise FileNotFoundError(path)
+    return path
+
+
+def _read_map_file(path: Path) -> Dict[str, Any]:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if data is None:
+        return {}
+    validate_map_data(data)
+    return dict(data) if isinstance(data, Mapping) else {}
+
+
+def _apply_map_rules(
+    result: Dict[str, Any],
+    map_data: Dict[str, Any],
+    source: Any,
+) -> Dict[str, Any]:
+    ids = _get_source_ids(source)
+    for out_key, raw_rule in map_data.items():
+        rules = _normalize_map_rules(raw_rule)
+        if not rules:
+            continue
+        found, current = _get_output_value(result, out_key)
+        for rule in rules:
+            if "when" in rule and not _matches_when(rule["when"], result, ids):
+                continue
+            new_value, has_value = _resolve_rule_value(rule, current if found else None)
+            if not has_value:
+                break
+            override = bool(rule.get("override", True))
+            if override or not found or current is None:
+                _set_nested(result, out_key, new_value)
+                found = True
+                current = new_value
+            break
+    return result
+
+
+def _normalize_map_rules(raw_rule: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw_rule, list):
+        return [rule for rule in raw_rule if isinstance(rule, Mapping)]
+    if isinstance(raw_rule, Mapping):
+        return [dict(raw_rule)]
+    raise ValueError("Map rule must be a mapping or list of mappings.")
+
+
+def _get_output_value(result: Dict[str, Any], out_key: str) -> Tuple[bool, Any]:
+    if "." in out_key:
+        value = _resolve_nested(result, out_key)
+        return (value is not None), value
+    if out_key in result:
+        return True, result[out_key]
+    return False, None
+
+
+def _get_source_ids(source: Any) -> Dict[str, Optional[int]]:
+    scan_id = getattr(source, "scan_id", None)
+    reco_id = getattr(source, "reco_id", None)
+    return {
+        "scanid": scan_id,
+        "scan_id": scan_id,
+        "recoid": reco_id,
+        "reco_id": reco_id,
+    }
+
+
+def _matches_when(when: Any, result: Dict[str, Any], ids: Dict[str, Optional[int]]) -> bool:
+    if not isinstance(when, Mapping):
+        raise ValueError("when must be a mapping.")
+    for key, cond in when.items():
+        actual = _resolve_context_value(str(key), result, ids)
+        if actual is _MISSING:
+            return False
+        if not _matches_condition(actual, cond):
+            return False
+    return True
+
+
+def _resolve_context_value(key: str, result: Dict[str, Any], ids: Dict[str, Optional[int]]) -> Any:
+    normalized = key.lower()
+    if normalized in ids and ids[normalized] is not None:
+        return ids[normalized]
+    if "." in key:
+        value = _resolve_nested(result, key)
+        return value if value is not None else _MISSING
+    if key in result:
+        return result[key]
+    return _MISSING
+
+
+def _matches_condition(value: Any, cond: Any) -> bool:
+    if isinstance(cond, Mapping):
+        for op, expected in cond.items():
+            if op == "not":
+                if _matches_condition(value, expected):
+                    return False
+                continue
+            if op == "in":
+                if not isinstance(expected, (list, tuple, set)):
+                    expected = [expected]
+                if isinstance(value, (list, tuple, set)):
+                    if not any(item in expected for item in value):
+                        return False
+                else:
+                    if value not in expected:
+                        return False
+                continue
+            if op == "regex":
+                if not re.search(str(expected), str(value)):
+                    return False
+                continue
+            if value != expected:
+                return False
+        return True
+    return value == cond
+
+
+def _resolve_rule_value(rule: Mapping[str, Any], current: Any) -> Tuple[Any, bool]:
+    if "default" in rule and "when" not in rule:
+        return rule.get("default"), True
+    rule_type = rule.get("type")
+    if rule_type is None:
+        if "values" in rule:
+            rule_type = "mapping"
+        elif "value" in rule:
+            rule_type = "const"
+    if rule_type == "mapping":
+        mapping = rule.get("values")
+        if not isinstance(mapping, Mapping):
+            raise ValueError("map values must be a mapping.")
+        has_default = "default" in rule
+        default = rule.get("default")
+        if current is None and not has_default and None not in mapping:
+            return current, False
+        return _map_lookup(current, mapping, default, has_default=has_default), True
+    if rule_type == "const":
+        return rule.get("value"), True
+    if "value" in rule:
+        return rule.get("value"), True
+    if "default" in rule:
+        return rule.get("default"), True
+    return current, False
+
+
+def _map_lookup(
+    value: Any,
+    mapping: Mapping[Any, Any],
+    default: Any,
+    *,
+    has_default: bool,
+) -> Any:
+    if isinstance(value, (list, tuple)):
+        mapped = [
+            _map_lookup(item, mapping, default, has_default=has_default) for item in value
+        ]
+        return type(value)(mapped)
+    if value in mapping:
+        return mapping[value]
+    if not isinstance(value, str):
+        as_str = str(value)
+        if as_str in mapping:
+            return mapping[as_str]
+    if has_default:
+        return default
+    return value
 
 
 __all__ = [

@@ -6,9 +6,10 @@ import importlib.resources as resources
 
 import yaml
 
+from ..meta import validate_meta
 
 _ALLOWED_FILES = {"method", "acqp", "visu_pars", "reco", "subject"}
-_RULE_KEYS = {"sources", "inputs", "transform"}
+_RULE_KEYS = {"sources", "inputs", "transform", "default"}
 _INPUT_KEYS = {"sources", "const", "ref", "transform", "default", "required"}
 _INLINE_SOURCE_KEYS = {"inputs", "transform"}
 _META_KEY = "__meta__"
@@ -39,6 +40,15 @@ def _load_schema() -> Dict[str, Any]:
     if __package__ is None:
         raise RuntimeError("Package context required to load remapper schema.")
     with resources.files("brkraw.schema").joinpath("remapper.yaml").open(
+        "r", encoding="utf-8"
+    ) as handle:
+        return yaml.safe_load(handle)
+
+
+def _load_map_schema() -> Dict[str, Any]:
+    if __package__ is None:
+        raise RuntimeError("Package context required to load map schema.")
+    with resources.files("brkraw.schema").joinpath("map.yaml").open(
         "r", encoding="utf-8"
     ) as handle:
         return yaml.safe_load(handle)
@@ -115,10 +125,18 @@ def _validate_spec_minimal(spec: Any) -> List[str]:
     if not isinstance(spec, dict):
         errors.append("spec: must be a mapping.")
         return errors
+    if _META_KEY not in spec:
+        errors.append("spec.__meta__: is required.")
+    else:
+        errors.extend(
+            validate_meta(
+                spec.get(_META_KEY),
+                allow_extra_keys={"include", "include_mode", "transforms_source", "__spec_path__"},
+                raise_on_error=False,
+            )
+        )
     for key, rule in spec.items():
         if key == _META_KEY:
-            if not isinstance(rule, dict):
-                errors.append("spec['__meta__']: must be an object.")
             continue
         path = f"spec[{key!r}]"
         if not isinstance(rule, dict):
@@ -171,7 +189,99 @@ def validate_spec(
             prefix = f"spec.{path}" if path else "spec"
             errors.append(f"{prefix}: {err.message}")
 
+    meta = spec.get(_META_KEY) if isinstance(spec, dict) else None
+    errors.extend(
+        validate_meta(
+            meta,
+            allow_extra_keys={"include", "include_mode", "transforms_source", "__spec_path__"},
+            raise_on_error=False,
+        )
+    )
     _validate_transforms_source(transforms_source, errors)
     if errors and raise_on_error:
         raise ValueError("Invalid remapper spec:\n" + "\n".join(errors))
     return errors
+
+
+def _validate_map_minimal(map_data: Any) -> List[str]:
+    errors: List[str] = []
+    if not isinstance(map_data, dict):
+        errors.append("map: must be a mapping.")
+        return errors
+    for key, value in map_data.items():
+        if not isinstance(key, str):
+            errors.append(f"map[{key!r}]: key must be a string.")
+        if isinstance(value, list):
+            for idx, rule in enumerate(value):
+                _validate_map_rule(rule, key, errors, idx=idx)
+        else:
+            _validate_map_rule(value, key, errors, idx=None)
+    return errors
+
+
+def _validate_map_rule(rule: Any, key: str, errors: List[str], *, idx: Optional[int]) -> None:
+    label = f"map[{key!r}]" if idx is None else f"map[{key!r}][{idx}]"
+    if not isinstance(rule, dict):
+        errors.append(f"{label}: rule must be a mapping.")
+        return
+    rule_type = rule.get("type")
+    if rule_type is None:
+        if "values" in rule:
+            rule_type = "mapping"
+        elif "value" in rule:
+            rule_type = "const"
+    if rule_type not in {"mapping", "const", None}:
+        errors.append(f"{label}: invalid type {rule_type!r}.")
+    if rule_type == "mapping":
+        table = rule.get("values")
+        if not isinstance(table, dict):
+            errors.append(f"{label}: values must be a mapping.")
+    when = rule.get("when")
+    if when is not None and not isinstance(when, dict):
+        errors.append(f"{label}: when must be a mapping.")
+    override = rule.get("override")
+    if override is not None and not isinstance(override, bool):
+        errors.append(f"{label}: override must be a boolean.")
+
+
+def validate_map_data(map_data: Any, *, raise_on_error: bool = True) -> List[str]:
+    """Validate a map file mapping.
+
+    Args:
+        map_data: Parsed map mapping to validate.
+        raise_on_error: If True, raise ValueError on validation errors.
+
+    Returns:
+        List of validation error messages (empty when valid).
+    """
+    errors: List[str] = []
+    try:
+        import jsonschema
+    except Exception:
+        errors = _validate_map_minimal(map_data)
+    else:
+        schema = _load_map_schema()
+        validator = jsonschema.Draft202012Validator(schema)
+        for err in validator.iter_errors(map_data):
+            path = ".".join(str(p) for p in err.path)
+            prefix = f"map.{path}" if path else "map"
+            errors.append(f"{prefix}: {err.message}")
+        errors.extend(_validate_map_minimal(map_data))
+    if errors and raise_on_error:
+        raise ValueError("Invalid map file:\n" + "\n".join(errors))
+    return errors
+
+
+def validate_map_file(path: Union[str, Path], *, raise_on_error: bool = True) -> List[str]:
+    """Load and validate a map file from YAML.
+
+    Args:
+        path: Map YAML file path.
+        raise_on_error: If True, raise ValueError on validation errors.
+
+    Returns:
+        List of validation error messages (empty when valid).
+    """
+    map_path = Path(path)
+    data = yaml.safe_load(map_path.read_text(encoding="utf-8"))
+    return validate_map_data(data, raise_on_error=raise_on_error)

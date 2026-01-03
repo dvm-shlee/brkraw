@@ -18,15 +18,14 @@ import numpy as np
 
 from brkraw.cli.utils import load
 from brkraw.core import config as config_core
+from brkraw.core import output_format as output_format_core
 from brkraw.resolver import nifti as nifti_resolver
 from brkraw.resolver.nifti import XYZUNIT, TUNIT, Nifti1HeaderContents
 from brkraw.resolver.affine import SubjectPose, SubjectType
 
 logger = logging.getLogger("brkraw")
 
-_VALUE_INVALID_CHARS = re.compile(r"[^A-Za-z0-9]+")
 _INVALID_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
-_TAG_PATTERN = re.compile(r"<([^>]+)>")
 
 
 def cmd_tonii(args: argparse.Namespace) -> int:
@@ -107,6 +106,10 @@ def cmd_tonii(args: argparse.Namespace) -> int:
         args.output_format = os.environ.get("BRKRAW_TONII_OUTPUT_FORMAT")
     if args.header is None:
         args.header = os.environ.get("BRKRAW_TONII_HEADER")
+    if args.sidecar_map_file is None:
+        args.sidecar_map_file = os.environ.get("BRKRAW_TONII_SIDECAR_MAP_FILE")
+    if args.output_map_file is None:
+        args.output_map_file = os.environ.get("BRKRAW_TONII_OUTPUT_MAP_FILE")
 
     if not Path(args.path).exists():
         logger.error("Path not found: %s", args.path)
@@ -142,7 +145,8 @@ def cmd_tonii(args: argparse.Namespace) -> int:
         logger.error("No scans available for conversion.")
         return 2
 
-    template = config_core.nifti_filename_template(root=args.root)
+    output_fields = config_core.output_format_fields(root=args.root)
+    format_spec = config_core.output_format_spec(root=args.root)
     total_written = 0
     for scan_id in scan_ids:
         if scan_id is None:
@@ -151,7 +155,6 @@ def cmd_tonii(args: argparse.Namespace) -> int:
         reco_ids = [args.reco_id] if args.reco_id is not None else list(scan.avail.keys())
         if not reco_ids:
             continue
-        info = _load_info(loader, scan_id)
         for reco_id in reco_ids:
             nii = loader.get_nifti1image(
                 scan_id,
@@ -171,7 +174,19 @@ def cmd_tonii(args: argparse.Namespace) -> int:
                 continue
 
             nii_list = list(nii) if isinstance(nii, tuple) else [nii]
-            base_name = _render_template(template, info, scan_id)
+            try:
+                base_name = output_format_core.render_output_format(
+                    loader,
+                    scan_id,
+                    output_format_fields=output_fields,
+                    output_format_spec=format_spec,
+                    map_file=args.output_map_file,
+                    root=args.root,
+                    reco_id=reco_id,
+                )
+            except Exception as exc:
+                logger.error("%s", exc)
+                return 2
             if args.prefix:
                 base_name = args.prefix
             if batch_all and args.prefix:
@@ -194,7 +209,11 @@ def cmd_tonii(args: argparse.Namespace) -> int:
 
             sidecar_meta = None
             if args.sidecar:
-                sidecar_meta = loader.get_metadata(scan_id, reco_id=reco_id)
+                sidecar_meta = loader.get_metadata(
+                    scan_id,
+                    reco_id=reco_id,
+                    map_file=args.sidecar_map_file,
+                )
 
             for path, obj in zip(output_paths, nii_list):
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -256,46 +275,6 @@ def cmd_tonii_all(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_info(loader, scan_id: int) -> Dict[str, Any]:
-    info = loader.info(scope="full", scan_id=scan_id, as_dict=True, show_reco=False)
-    return info if isinstance(info, dict) else {}
-
-
-def _render_template(template: str, info: Mapping[str, Any], scan_id: int) -> str:
-    subject = info.get("Subject", {}) if isinstance(info.get("Subject"), Mapping) else {}
-    study = info.get("Study", {}) if isinstance(info.get("Study"), Mapping) else {}
-    scans = info.get("Scan(s)", {}) if isinstance(info.get("Scan(s)"), Mapping) else {}
-    scan = scans.get(scan_id, {}) if isinstance(scans, Mapping) else {}
-
-    def _resolve_tag(tag: str) -> Any:
-        if tag == "ScanID":
-            return scan_id
-        if "." in tag:
-            root, key = tag.split(".", 1)
-            if root == "Subject":
-                return subject.get(key)
-            if root == "Study":
-                return study.get(key)
-        return scan.get(tag)
-
-    def _format_value(value: Any) -> str:
-        if value is None:
-            return "unknown"
-        if isinstance(value, Mapping):
-            return "-".join(f"{k}-{_format_value(v)}" for k, v in value.items())
-        if isinstance(value, np.ndarray):
-            return "-".join(str(v) for v in value.tolist())
-        if isinstance(value, (list, tuple)):
-            return "-".join(_format_value(v) for v in value)
-        raw = str(value).strip()
-        cleaned = _VALUE_INVALID_CHARS.sub("", raw)
-        return cleaned or "unknown"
-
-    def _replace(match: re.Match[str]) -> str:
-        tag = match.group(1)
-        return _format_value(_resolve_tag(tag))
-
-    return _TAG_PATTERN.sub(_replace, template)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -318,11 +297,21 @@ def _iter_dataset_paths(root: Path) -> List[Path]:
         for entry in root.iterdir():
             if entry.is_dir():
                 candidates.append(entry)
-            elif entry.is_file() and entry.suffix.lower() == ".zip":
+                continue
+            if entry.is_file() and _is_zip_file(entry):
                 candidates.append(entry)
     except PermissionError:
         logger.error("Permission denied while reading %s", root)
     return candidates
+
+
+def _is_zip_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            sig = handle.read(4)
+    except OSError:
+        return False
+    return sig in {b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"}
 
 
 def _split_nifti_name(path: Path) -> Tuple[str, str]:
@@ -444,6 +433,16 @@ def _add_tonii_args(
         "--sidecar",
         action="store_true",
         help="Write a JSON sidecar using metadata rules.",
+    )
+    parser.add_argument(
+        "--sidecar-map-file",
+        dest="sidecar_map_file",
+        help="Override map file used by metadata sidecar rules.",
+    )
+    parser.add_argument(
+        "--output-map-file",
+        dest="output_map_file",
+        help="Override map file used by output format spec mapping.",
     )
     parser.add_argument(
         "--unwrap-pose",

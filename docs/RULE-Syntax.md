@@ -33,7 +33,8 @@ info_spec:
             key: ACQ_XXX
     if:
       eq: ["$method", "MRS"]
-    use: "specs/mrs.yaml"
+    use: "mrs"
+    version: "1.0.0"
 
 converter_entrypoint:
   - name: "mrs-reco"
@@ -59,7 +60,8 @@ Each rule item supports:
 - `when` (required): variable bindings using remapper-style sources. Each
   variable may include `transform` to normalize values before matching.
 - `if` (optional): condition expression using the variables from `when`.
-- `use` (required): target spec path or entry point name.
+- `use` (required): target spec name or spec path, or entry point name.
+- `version` (optional): spec version to select when `use` is a spec name.
 
 ## Variable Binding (`when`)
 
@@ -109,12 +111,17 @@ if:
 
 ## Targets (`use`)
 
-- `info_spec`/`metadata_spec` use a relative path to a YAML spec file under
+- `info_spec`/`metadata_spec` can use a spec name or a YAML spec path under
   `~/.brkraw/specs/` (or another configured root).
 - Transforms for `info_spec`/`metadata_spec` are defined in the spec file under
   `__meta__.transforms_source`.
 - `converter_entrypoint` uses the entry point name registered under
   `brkraw.converter` (or another configured group).
+
+When `use` is a spec name, rules will:
+
+- match `__meta__.category` to the rule category (`info_spec` or `metadata_spec`)
+- select `version` if provided, otherwise the latest version
 
 ## Override Behavior
 

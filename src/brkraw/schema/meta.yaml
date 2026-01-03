@@ -1,0 +1,60 @@
+---
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "BrkRaw Spec Metadata"
+type: object
+additionalProperties: false
+required:
+  - name
+  - version
+  - description
+  - category
+properties:
+  name:
+    type: string
+    pattern: "^[a-z][a-z0-9]*(?:_[a-z0-9]+){0,3}$"
+    description: "Python-friendly identifier (max 4 tokens)."
+  version:
+    type: string
+    minLength: 1
+  description:
+    type: string
+    minLength: 1
+  category:
+    type: string
+    minLength: 1
+  map_file:
+    type: string
+    minLength: 1
+  authors:
+    type: array
+    items:
+      $ref: "#/$defs/person"
+    minItems: 1
+  developers:
+    type: array
+    items:
+      $ref: "#/$defs/person"
+    minItems: 1
+  doi:
+    type: string
+  citation:
+    type: string
+$defs:
+  person:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+    properties:
+      name:
+        type: string
+        minLength: 1
+      email:
+        type: string
+        minLength: 1
+      affiliations:
+        type: array
+        items:
+          type: string
+          minLength: 1
+        minItems: 1

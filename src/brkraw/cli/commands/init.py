@@ -1,11 +1,13 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import argparse
 import logging
 import os
 from datetime import date
 from pathlib import Path
+
+import yaml
 
 from brkraw.core import config as config_core
 from brkraw.apps import addon as addon_app
@@ -14,18 +16,45 @@ logger = logging.getLogger("brkraw")
 
 
 def cmd_init(args: argparse.Namespace) -> int:
+    interactive = not args.yes
+    create_config = not args.no_config
+    install_examples = args.install_example
+    shellrc = Path(args.shellrc) if args.shellrc else _default_shell_rc()
+    config_values: Optional[Dict[str, Any]] = None
+
+    if interactive:
+        create_config = _prompt_bool("Create config.yaml?", default=create_config)
+        if create_config:
+            config_values = _prompt_config_values()
+        install_examples = _prompt_bool(
+            "Install example specs/rules?", default=install_examples
+        )
+        install_helpers = _prompt_bool(
+            "Install shell helpers?", default=shellrc is not None
+        )
+        if install_helpers:
+            if shellrc is None:
+                shellrc = _prompt_path("Shell rc path", default=None)
+            if shellrc is not None:
+                _install_shell_helpers(shellrc)
+        else:
+            shellrc = None
+
     config_core.init(
         root=args.root,
-        create_config=not args.no_config,
+        create_config=False,
         exist_ok=not args.no_exist_ok,
     )
     logger.info("Initialized config at %s", config_core.paths(root=args.root).root)
-    if args.install_example:
+    if create_config:
+        if config_values is None:
+            config_values = config_core.default_config()
+        config_core.write_config(config_values, root=args.root)
+    if install_examples:
         installed = addon_app.install_examples(root=args.root)
         if installed:
             logger.info("Installed %d example file(s).", len(installed))
-    shellrc = Path(args.shellrc) if args.shellrc else _default_shell_rc()
-    if shellrc is not None:
+    if not interactive and shellrc is not None:
         _install_shell_helpers(shellrc)
     return 0
 
@@ -50,6 +79,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         help="Fail if the root directory already exists.",
     )
     init_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip prompts and use defaults.",
+    )
+    init_parser.add_argument(
         "--install-example",
         action="store_true",
         help="Install example specs and rules.",
@@ -62,6 +96,44 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
     init_parser.set_defaults(func=cmd_init)
 
 
+def _prompt_bool(label: str, *, default: bool) -> bool:
+    prompt = "Y/n" if default else "y/N"
+    while True:
+        reply = input(f"{label} [{prompt}]: ").strip().lower()
+        if not reply:
+            return default
+        if reply in {"y", "yes"}:
+            return True
+        if reply in {"n", "no"}:
+            return False
+
+
+def _prompt_config_values() -> Dict[str, Any]:
+    defaults = config_core.default_config()
+    result: Dict[str, Any] = {}
+    keys = list(defaults.keys())
+    for key in keys:
+        if key == "config_version":
+            result[key] = defaults.get(key)
+            continue
+        default = defaults.get(key)
+        display = "null" if default is None else str(default)
+        reply = input(f"{key} [{display}]: ").strip()
+        if reply == "":
+            result[key] = default
+        else:
+            result[key] = yaml.safe_load(reply)
+    return result
+
+
+def _prompt_path(label: str, *, default: Optional[Path]) -> Optional[Path]:
+    display = str(default) if default else ""
+    reply = input(f"{label} [{display}]: ").strip()
+    if not reply:
+        return default
+    return Path(reply).expanduser()
+
+
 def _install_shell_helpers(path: Path) -> None:
     marker = "# brkraw shell helpers"
     snippet = "\n".join(
@@ -69,18 +141,18 @@ def _install_shell_helpers(path: Path) -> None:
             f"{marker} (added {date.today().isoformat()})",
             "brkraw-set() {",
             "  if [ \"$#\" -eq 0 ]; then",
-            "    brkraw set",
+            "    brkraw session set",
             "  else",
-            "    eval \"$(brkraw set \"$@\")\"",
+            "    eval \"$(brkraw session set \"$@\")\"",
             "  fi",
             "}",
             "brkraw-unset() {",
             "  if [ \"$#\" -eq 0 ]; then",
-            "    eval \"$(brkraw unset)\"",
+            "    eval \"$(brkraw session unset)\"",
             "  elif [ \"$1\" = \"-h\" ] || [ \"$1\" = \"--help\" ]; then",
-            "    brkraw unset \"$@\"",
+            "    brkraw session unset \"$@\"",
             "  else",
-            "    eval \"$(brkraw unset \"$@\")\"",
+            "    eval \"$(brkraw session unset \"$@\")\"",
             "  fi",
             "}",
             "",

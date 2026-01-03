@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-"""Environment helper commands for BrkRaw.
-
-Last updated: 2025-12-30
-"""
+"""Session command to manage BrkRaw environment defaults."""
 
 import argparse
 import os
-from typing import Iterable, List, Tuple
 from pathlib import Path
+from typing import Iterable, List, Tuple
 
 from brkraw.apps.loader import BrukerLoader
 
@@ -26,6 +23,14 @@ def _format_param_files(files: Iterable[str]) -> str:
     return ",".join(str(item) for item in files)
 
 
+def cmd_session(args: argparse.Namespace) -> int:
+    handler = getattr(args, "session_func", None)
+    if handler is None:
+        args.parser.print_help()
+        return 2
+    return handler(args)
+
+
 def cmd_set(args: argparse.Namespace) -> int:
     if (
         not args.path
@@ -41,7 +46,7 @@ def cmd_set(args: argparse.Namespace) -> int:
             print(_format_short_help(parser))
         print("\nTip: run `brkraw init --shell-rc ~/.zshrc` (or ~/.bashrc)")
         print("Then use `brkraw-set ...` and `brkraw-unset` in your shell.")
-        print("You can still use `eval \"$(brkraw set ...)\"` directly.")
+        print("You can still use `eval \"$(brkraw session set ...)\"` directly.")
         return 2
     lines: List[str] = []
     if args.path:
@@ -94,6 +99,8 @@ def cmd_unset(args: argparse.Namespace) -> int:
         "BRKRAW_TONII_SCAN_ID",
         "BRKRAW_TONII_RECO_ID",
         "BRKRAW_TONII_SIDECAR",
+        "BRKRAW_TONII_SIDECAR_MAP_FILE",
+        "BRKRAW_TONII_OUTPUT_MAP_FILE",
         "BRKRAW_TONII_UNWRAP_POSE",
         "BRKRAW_TONII_FLIP_X",
         "BRKRAW_TONII_OVERRIDE_SUBJECT_TYPE",
@@ -149,6 +156,8 @@ def cmd_env(_: argparse.Namespace) -> int:
     tonii_scan_id = os.environ.get("BRKRAW_TONII_SCAN_ID")
     tonii_reco_id = os.environ.get("BRKRAW_TONII_RECO_ID")
     tonii_sidecar = os.environ.get("BRKRAW_TONII_SIDECAR")
+    tonii_sidecar_map_file = os.environ.get("BRKRAW_TONII_SIDECAR_MAP_FILE")
+    tonii_output_map_file = os.environ.get("BRKRAW_TONII_OUTPUT_MAP_FILE")
     tonii_unwrap_pose = os.environ.get("BRKRAW_TONII_UNWRAP_POSE")
     tonii_flip_x = os.environ.get("BRKRAW_TONII_FLIP_X")
     tonii_subject_type = os.environ.get("BRKRAW_TONII_OVERRIDE_SUBJECT_TYPE")
@@ -169,6 +178,8 @@ def cmd_env(_: argparse.Namespace) -> int:
         and tonii_scan_id is None
         and tonii_reco_id is None
         and tonii_sidecar is None
+        and tonii_sidecar_map_file is None
+        and tonii_output_map_file is None
         and tonii_unwrap_pose is None
         and tonii_flip_x is None
         and tonii_subject_type is None
@@ -202,6 +213,10 @@ def cmd_env(_: argparse.Namespace) -> int:
         print(f"BRKRAW_TONII_RECO_ID={tonii_reco_id}")
     if tonii_sidecar is not None:
         print(f"BRKRAW_TONII_SIDECAR={tonii_sidecar}")
+    if tonii_sidecar_map_file is not None:
+        print(f"BRKRAW_TONII_SIDECAR_MAP_FILE={tonii_sidecar_map_file}")
+    if tonii_output_map_file is not None:
+        print(f"BRKRAW_TONII_OUTPUT_MAP_FILE={tonii_output_map_file}")
     if tonii_unwrap_pose is not None:
         print(f"BRKRAW_TONII_UNWRAP_POSE={tonii_unwrap_pose}")
     if tonii_flip_x is not None:
@@ -250,13 +265,20 @@ def _parse_tonii_options(items: List[str]) -> List[Tuple[str, str]]:
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[name-defined]
-    set_parser = subparsers.add_parser(
+    session_parser = subparsers.add_parser(
+        "session",
+        help="Manage BrkRaw environment defaults.",
+    )
+    session_parser.add_argument(
+        "--root",
+        help="Override config root directory (default: BRKRAW_CONFIG_HOME or ~/.brkraw).",
+    )
+    session_parser.set_defaults(func=cmd_session, parser=session_parser)
+    session_sub = session_parser.add_subparsers(dest="session_command")
+
+    set_parser = session_sub.add_parser(
         "set",
         help="Emit shell exports for BrkRaw environment defaults.",
-        description=(
-            "Emit shell exports for BrkRaw environment defaults. "
-            "Use with `eval \"$(brkraw set ...)\"` or the brkraw-set helper."
-        ),
     )
     set_parser.add_argument(
         "-p",
@@ -303,15 +325,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
             "T_UNITS, HEADER, OUTPUT_FORMAT."
         ),
     )
-    set_parser.set_defaults(func=cmd_set, parser=set_parser)
+    set_parser.set_defaults(session_func=cmd_set, parser=set_parser)
 
-    unset_parser = subparsers.add_parser(
+    unset_parser = session_sub.add_parser(
         "unset",
         help="Emit shell unset commands for BrkRaw environment defaults.",
-        description=(
-            "Emit shell unset commands for BrkRaw environment defaults. "
-            "Use with `eval \"$(brkraw unset)\"` or the brkraw-unset helper."
-        ),
     )
     unset_parser.add_argument(
         "-p",
@@ -359,10 +377,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
             "Use without KEY to unset all tonii variables."
         ),
     )
-    unset_parser.set_defaults(func=cmd_unset)
+    unset_parser.set_defaults(session_func=cmd_unset)
 
-    env_parser = subparsers.add_parser(
+    env_parser = session_sub.add_parser(
         "env",
         help="Show current BrkRaw environment defaults.",
     )
-    env_parser.set_defaults(func=cmd_env)
+    env_parser.set_defaults(session_func=cmd_env)

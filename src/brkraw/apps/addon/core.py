@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.resources as resources
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Set, Optional, Union
 
@@ -15,11 +16,13 @@ import yaml
 
 from ...core import config as config_core
 from ...specs import remapper
+from ...specs.pruner import validator as pruner_validator
 from ...specs.rules import validator as rules_validator
 
 logger = logging.getLogger("brkraw")
 
 RULE_KEYS = {"info_spec", "metadata_spec", "converter_entrypoint"}
+_SPEC_EXTS = (".yaml", ".yml")
 
 
 def add(path: Union[str, Path], root: Optional[Union[str, Path]] = None) -> List[Path]:
@@ -69,6 +72,9 @@ def add_spec_data(
     paths = config_core.paths(root=root)
     target = paths.specs_dir / filename
     installed = [target]
+    installed_map = _install_map_file(spec_data, source_path=source_path, target_spec=target, root=root)
+    if installed_map is not None:
+        installed.append(installed_map)
     installed_transforms, updated = _install_transforms_from_spec(
         spec_data,
         base_dir=source_path.parent if source_path else None,
@@ -80,6 +86,41 @@ def add_spec_data(
     _write_file(target, content)
     logger.info("Installed spec: %s", target)
     return installed
+
+
+def add_pruner_spec_data(
+    spec_data: Dict[str, Any],
+    *,
+    filename: Optional[str] = None,
+    source_path: Optional[Path] = None,
+    root: Optional[Union[str, Path]] = None,
+) -> List[Path]:
+    """Install a pruner spec from parsed data.
+
+    Args:
+        spec_data: Parsed pruner spec mapping.
+        filename: Target filename for the spec.
+        source_path: Original spec file path.
+        root: Optional config root override.
+
+    Returns:
+        List of installed file paths.
+    """
+    if not isinstance(spec_data, dict):
+        raise ValueError("Pruner spec data must be a mapping.")
+    if filename is None:
+        if source_path is None:
+            raise ValueError("filename is required when source_path is not provided.")
+        filename = source_path.name
+    if not filename.endswith((".yaml", ".yml")):
+        raise ValueError(f"Pruner spec filename must be .yaml/.yml: {filename}")
+    pruner_validator.validate_prune_spec(spec_data)
+    paths = config_core.paths(root=root)
+    target = paths.pruner_specs_dir / filename
+    content = yaml.safe_dump(spec_data, sort_keys=False)
+    _write_file(target, content)
+    logger.info("Installed pruner spec: %s", target)
+    return [target]
 
 
 def add_rule_data(
@@ -116,6 +157,38 @@ def add_rule_data(
     _write_file(target, content)
     logger.info("Installed rule: %s", target)
     return [target]
+
+
+def install_map(
+    map_file: Union[str, Path],
+    spec: Union[str, Path],
+    *,
+    category: Optional[str] = None,
+    force: bool = False,
+    root: Optional[Union[str, Path]] = None,
+) -> List[Path]:
+    """Install a map file and bind it to an installed spec.
+
+    Args:
+        map_file: Source map YAML file.
+        spec: Installed spec name or filename.
+        category: Optional spec category hint.
+        root: Optional config root override.
+
+    Returns:
+        List of installed/updated file paths.
+    """
+    paths = config_core.paths(root=root)
+    spec_path = resolve_spec_reference(str(spec), category=category, root=root)
+    if not _is_installed_spec(spec_path, paths.specs_dir):
+        raise ValueError(f"Spec is not installed: {spec_path}")
+    installed_map = _install_map_for_spec(
+        spec_path,
+        map_file=map_file,
+        force=force,
+        root=root,
+    )
+    return [installed_map, spec_path]
 
 
 def install_examples(root: Optional[Union[str, Path]] = None) -> List[Path]:
@@ -169,40 +242,80 @@ def list_installed(root: Optional[Union[str, Path]] = None) -> Dict[str, List[Di
         Mapping with "specs" and "rules" lists for display.
     """
     paths = config_core.paths(root=root)
-    result: Dict[str, List[Dict[str, str]]] = {"specs": [], "rules": [], "transforms": []}
+    result: Dict[str, List[Dict[str, str]]] = {
+        "specs": [],
+        "pruner_specs": [],
+        "rules": [],
+        "transforms": [],
+        "maps": [],
+    }
 
     rule_entries = _load_rule_entries(paths.rules_dir)
     spec_categories = _spec_categories_from_rules(rule_entries)
 
     transforms_map: Dict[str, Set[str]] = {}
-    if paths.specs_dir.exists():
-        spec_files = list(paths.specs_dir.glob("*.yml")) + list(paths.specs_dir.glob("*.yaml"))
-        for spec in sorted(spec_files):
-            meta = _load_spec_meta(spec)
-            name = meta.get("name")
-            desc = meta.get("description")
-            category = spec_categories.get(spec.name)
-            result["specs"].append(
-                {
-                    "file": spec.name,
-                    "name": name if name else "<Unknown>",
-                    "description": desc if desc else "<Unknown>",
-                    "category": category if category else "<Unknown>",
-                    "name_unknown": "1" if not name else "0",
-                    "description_unknown": "1" if not desc else "0",
-                    "category_unknown": "1" if not category else "0",
-                }
-            )
-            spec_label = spec.name
-            for src in _collect_transforms_sources(spec):
-                transforms_map.setdefault(Path(src).name, set()).add(spec_label)
+    maps_map: Dict[str, Set[str]] = {}
+    for record in _load_spec_records(paths.specs_dir):
+        name = record.get("name")
+        desc = record.get("description")
+        version = record.get("version")
+        category = (
+            record.get("category")
+            or spec_categories.get(record["file"])
+            or spec_categories.get(name or "")
+        )
+        result["specs"].append(
+            {
+                "file": record["file"],
+                "name": name if name else "<Unknown>",
+                "version": version if version else "<Unknown>",
+                "description": desc if desc else "<Unknown>",
+                "category": category if category else "<Unknown>",
+                "name_unknown": "1" if not name else "0",
+                "version_unknown": "1" if not version else "0",
+                "description_unknown": "1" if not desc else "0",
+                "category_unknown": "1" if not category else "0",
+            }
+        )
+        spec_path = record["path"]
+        spec_label = record["file"]
+        for src in _collect_transforms_sources(spec_path):
+            transforms_map.setdefault(Path(src).name, set()).add(spec_label)
+        map_entry = _resolve_spec_map_file(spec_path)
+        if map_entry is not None:
+            maps_map.setdefault(map_entry.name, set()).add(spec_label)
 
     for entry in rule_entries:
         result["rules"].append(entry)
 
+    for record in _load_pruner_spec_records(paths.pruner_specs_dir):
+        result["pruner_specs"].append(
+            {
+                "file": record["file"],
+                "name": record.get("name") or "<Unknown>",
+                "version": record.get("version") or "<Unknown>",
+                "description": record.get("description") or "<Unknown>",
+                "category": record.get("category") or "pruner_spec",
+                "name_unknown": "1" if not record.get("name") else "0",
+                "version_unknown": "1" if not record.get("version") else "0",
+                "description_unknown": "1" if not record.get("description") else "0",
+                "category_unknown": "0",
+            }
+        )
+
     for path in sorted(paths.transforms_dir.glob("*.py")):
         mapped = transforms_map.get(path.name)
         result["transforms"].append(
+            {
+                "file": path.name,
+                "spec": ", ".join(sorted(mapped)) if mapped else "<Unknown>",
+                "spec_unknown": "1" if not mapped else "0",
+            }
+        )
+
+    for path in sorted(paths.maps_dir.glob("*.yaml")) + sorted(paths.maps_dir.glob("*.yml")):
+        mapped = maps_map.get(path.name)
+        result["maps"].append(
             {
                 "file": path.name,
                 "spec": ", ".join(sorted(mapped)) if mapped else "<Unknown>",
@@ -233,7 +346,7 @@ def remove(
     name = Path(filename).name
     paths = config_core.paths(root=root)
     removed: List[Path] = []
-    kinds = [kind] if kind else ["spec", "rule", "transform"]
+    kinds = [kind] if kind else ["spec", "pruner", "rule", "transform"]
     targets = _resolve_targets(name, kinds, paths)
     if not targets:
         raise FileNotFoundError(name)
@@ -242,9 +355,11 @@ def remove(
         has_deps = _warn_dependencies(target, kind=item, root=root) or has_deps
     if has_deps and not force:
         raise RuntimeError("Dependencies found; use --force to remove.")
-    for target, _ in targets:
+    for target, item in targets:
         target.unlink()
         removed.append(target)
+        if item == "map":
+            _remove_map_references(target, paths.specs_dir)
     if not removed:
         raise FileNotFoundError(name)
     return removed
@@ -279,6 +394,15 @@ def _warn_dependencies(target: Path, *, kind: str, root: Optional[Union[str, Pat
                 ", ".join(sorted(used_by_specs)),
             )
             warned = True
+    elif kind == "map":
+        used_by_specs = _specs_using_map(target, paths.specs_dir)
+        if used_by_specs:
+            logger.warning(
+                "Map file %s is referenced by specs: %s",
+                target.name,
+                ", ".join(sorted(used_by_specs)),
+            )
+            warned = True
     return warned
 
 
@@ -291,12 +415,16 @@ def _resolve_targets(
     for item in kinds:
         if item == "spec":
             base = paths.specs_dir
+        elif item == "pruner":
+            base = paths.pruner_specs_dir
         elif item == "rule":
             base = paths.rules_dir
         elif item == "transform":
             base = paths.transforms_dir
+        elif item == "map":
+            base = paths.maps_dir
         else:
-            raise ValueError("kind must be 'spec' or 'rule' or 'transform'.")
+            raise ValueError("kind must be 'spec' or 'pruner' or 'rule' or 'transform' or 'map'.")
         if not base.exists():
             continue
         matches = [path for path in base.glob(name) if path.is_file()]
@@ -361,6 +489,18 @@ def _specs_using_transform(transform_name: str, specs_dir: Path) -> Set[str]:
     return used_by
 
 
+def _specs_using_map(map_path: Path, specs_dir: Path) -> Set[str]:
+    used_by: Set[str] = set()
+    if not specs_dir.exists():
+        return used_by
+    files = list(specs_dir.glob("*.yaml")) + list(specs_dir.glob("*.yml"))
+    for path in files:
+        resolved = _resolve_spec_map_file(path)
+        if resolved is not None and resolved.name == map_path.name:
+            used_by.add(path.name)
+    return used_by
+
+
 def _add_from_yaml(path: Path, root: Optional[Union[str, Path]]) -> List[Path]:
     """Install a spec or rule YAML after classifying the content.
 
@@ -382,6 +522,8 @@ def _add_from_yaml(path: Path, root: Optional[Union[str, Path]]) -> List[Path]:
         return add_rule_data(data, filename=path.name, source_path=path, root=root)
     if kind == "spec":
         return add_spec_data(data, filename=path.name, source_path=path, root=root)
+    if kind == "pruner_spec":
+        return add_pruner_spec_data(data, filename=path.name, source_path=path, root=root)
     raise ValueError(f"Unrecognized YAML file: {path}")
 
 
@@ -399,6 +541,12 @@ def _classify_yaml(data: Dict[str, Any]) -> str:
     errors = remapper.validate_spec(data, raise_on_error=False)
     if not errors:
         return "spec"
+    try:
+        pruner_validator.validate_prune_spec(data)
+    except Exception:
+        pass
+    else:
+        return "pruner_spec"
     rules_validator.validate_rules(data)
     return "rule"
 
@@ -577,11 +725,14 @@ def _ensure_rule_specs_present(rule_data: Dict[str, Any], *, root: Optional[Unio
             use = item.get("use")
             if not isinstance(use, str):
                 continue
-            spec_path = _resolve_spec_path(use, base)
-            if not spec_path.exists():
-                raise FileNotFoundError(
-                    f"{spec_path} not found. Install the spec before adding rules."
-                )
+            version = item.get("version") if isinstance(item.get("version"), str) else None
+            spec_path = resolve_spec_reference(
+                use,
+                category=key,
+                version=version,
+                root=base,
+            )
+            _ensure_spec_category(spec_path, key)
 
 
 def _load_rule_entries(rules_dir: Path) -> List[Dict[str, str]]:
@@ -611,6 +762,7 @@ def _load_rule_entries(rules_dir: Path) -> List[Dict[str, str]]:
                         "category": key,
                         "name": str(item.get("name", "")),
                         "description": str(item.get("description", "")),
+                        "version": str(item.get("version", "")),
                         "use": str(item.get("use", "")),
                     }
                 )
@@ -658,12 +810,311 @@ def _load_spec_meta(path: Path) -> Dict[str, str]:
         return {}
     name = meta.get("name")
     desc = meta.get("description")
+    version = meta.get("version")
+    category = meta.get("category")
     out: Dict[str, str] = {}
     if isinstance(name, str):
         out["name"] = name
     if isinstance(desc, str):
         out["description"] = desc
+    if isinstance(version, str):
+        out["version"] = version
+    if isinstance(category, str):
+        out["category"] = category
     return out
+
+
+def _resolve_spec_map_file(spec_path: Path) -> Optional[Path]:
+    data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return None
+    meta = data.get("__meta__")
+    if not isinstance(meta, dict):
+        return None
+    map_file = meta.get("map_file")
+    if not isinstance(map_file, str) or not map_file:
+        return None
+    path = Path(map_file)
+    if not path.is_absolute():
+        path = (spec_path.parent / path).resolve()
+    return path
+
+
+def _is_installed_spec(spec_path: Path, specs_dir: Path) -> bool:
+    try:
+        spec_path = spec_path.resolve()
+        specs_dir = specs_dir.resolve()
+    except FileNotFoundError:
+        return False
+    return specs_dir in spec_path.parents or spec_path == specs_dir
+
+
+def _install_map_file(
+    spec_data: Dict[str, Any],
+    *,
+    source_path: Optional[Path],
+    target_spec: Path,
+    root: Optional[Union[str, Path]],
+) -> Optional[Path]:
+    meta = spec_data.get("__meta__")
+    if not isinstance(meta, dict):
+        return None
+    map_file = meta.get("map_file")
+    if not isinstance(map_file, str) or not map_file:
+        return None
+    paths = config_core.paths(root=root)
+    src_path = Path(map_file)
+    if not src_path.is_absolute():
+        if source_path is None:
+            raise FileNotFoundError(src_path)
+        src_path = (source_path.parent / src_path).resolve()
+    if not src_path.exists():
+        raise FileNotFoundError(src_path)
+    target = paths.maps_dir / src_path.name
+    _write_file(target, src_path.read_text(encoding="utf-8"))
+    rel_path = os.path.relpath(target, start=target_spec.parent)
+    meta["map_file"] = rel_path
+    logger.info("Installed map file: %s", target)
+    return target
+
+
+def _install_map_for_spec(
+    spec_path: Path,
+    *,
+    map_file: Union[str, Path],
+    force: bool,
+    root: Optional[Union[str, Path]],
+) -> Path:
+    paths = config_core.paths(root=root)
+    src_path = Path(map_file).expanduser()
+    if not src_path.is_absolute():
+        src_path = (Path.cwd() / src_path).resolve()
+    if not src_path.exists():
+        raise FileNotFoundError(src_path)
+    data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Spec file must be a mapping: {spec_path}")
+    meta = data.get("__meta__")
+    if not isinstance(meta, dict):
+        raise ValueError(f"{spec_path}: __meta__ must be an object.")
+    existing = _resolve_spec_map_file(spec_path)
+    if existing is not None and not force:
+        logger.info("Spec already has map_file: %s", existing)
+        raise RuntimeError("Map file already installed; remove it or use force=True.")
+    if existing is not None and force:
+        used_by = _specs_using_map(existing, paths.specs_dir)
+        if existing.exists() and used_by == {spec_path.name}:
+            existing.unlink()
+            logger.info("Removed previous map file: %s", existing)
+        elif existing.exists():
+            logger.info("Keeping shared map file: %s", existing)
+    target = paths.maps_dir / src_path.name
+    _write_file(target, src_path.read_text(encoding="utf-8"))
+    rel_path = os.path.relpath(target, start=spec_path.parent)
+    meta["map_file"] = rel_path
+    _write_file(spec_path, yaml.safe_dump(data, sort_keys=False))
+    logger.info("Installed map file: %s", target)
+    logger.info("Updated spec map_file: %s", spec_path)
+    return target
+
+
+def _remove_map_references(map_path: Path, specs_dir: Path) -> None:
+    if not specs_dir.exists():
+        return
+    spec_files = list(specs_dir.glob("*.yml")) + list(specs_dir.glob("*.yaml"))
+    for spec_path in spec_files:
+        data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            continue
+        meta = data.get("__meta__")
+        if not isinstance(meta, dict):
+            continue
+        current = meta.get("map_file")
+        if not isinstance(current, str) or not current:
+            continue
+        resolved = Path(current)
+        if not resolved.is_absolute():
+            resolved = (spec_path.parent / resolved).resolve()
+        try:
+            if resolved.resolve() != map_path.resolve():
+                continue
+        except FileNotFoundError:
+            continue
+        meta.pop("map_file", None)
+        _write_file(spec_path, yaml.safe_dump(data, sort_keys=False))
+        logger.info("Cleared map_file from spec: %s", spec_path)
+
+
+def _ensure_spec_category(spec_path: Path, category: str) -> None:
+    if category not in {"info_spec", "metadata_spec"}:
+        return
+    data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Spec file must be a mapping: {spec_path}")
+    meta = data.get("__meta__")
+    if not isinstance(meta, dict):
+        raise ValueError(f"{spec_path}: __meta__ must be an object.")
+    current = meta.get("category")
+    if current is None:
+        raise ValueError(f"{spec_path}: __meta__.category is required.")
+    if current != category:
+        raise ValueError(
+            f"{spec_path}: __meta__.category={current!r} conflicts with rule category {category!r}."
+        )
+
+
+def _load_spec_records(specs_dir: Path) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    if not specs_dir.exists():
+        return records
+    spec_files = list(specs_dir.glob("*.yml")) + list(specs_dir.glob("*.yaml"))
+    for spec_path in sorted(spec_files):
+        meta = _load_spec_meta(spec_path)
+        records.append(
+            {
+                "file": spec_path.name,
+                "path": spec_path,
+                "name": meta.get("name"),
+                "version": meta.get("version"),
+                "description": meta.get("description"),
+                "category": meta.get("category"),
+            }
+        )
+    return records
+
+
+def _load_pruner_spec_records(specs_dir: Path) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    if not specs_dir.exists():
+        return records
+    spec_files = list(specs_dir.glob("*.yml")) + list(specs_dir.glob("*.yaml"))
+    for spec_path in sorted(spec_files):
+        meta = _load_spec_meta(spec_path)
+        records.append(
+            {
+                "file": spec_path.name,
+                "path": spec_path,
+                "name": meta.get("name"),
+                "version": meta.get("version"),
+                "description": meta.get("description"),
+                "category": meta.get("category"),
+            }
+        )
+    return records
+
+
+def _looks_like_spec_path(use: str) -> bool:
+    return (
+        "/" in use
+        or "\\" in use
+        or use.endswith(_SPEC_EXTS)
+        or use.startswith(".")
+    )
+
+
+def _version_key(value: str) -> Tuple[Tuple[int, Union[int, str]], ...]:
+    parts = [p for p in re.split(r"[.\-_+]", value) if p]
+    key: List[Tuple[int, Union[int, str]]] = []
+    for part in parts:
+        if part.isdigit():
+            key.append((0, int(part)))
+        else:
+            key.append((1, part))
+    return tuple(key)
+
+
+def _select_latest(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _key(item: Dict[str, Any]) -> Tuple[Tuple[int, Union[int, str]], ...]:
+        version = item.get("version")
+        return _version_key(version) if isinstance(version, str) else tuple()
+
+    best = max(records, key=_key)
+    best_key = _key(best)
+    tied = [item for item in records if _key(item) == best_key]
+    if len(tied) > 1:
+        files = ", ".join(sorted(item["file"] for item in tied))
+        raise ValueError(f"Multiple specs share the latest version: {files}")
+    return best
+
+
+def _resolve_spec_by_name(
+    name: str,
+    *,
+    category: Optional[str],
+    version: Optional[str],
+    base: Path,
+) -> Path:
+    paths = config_core.paths(root=base)
+    records = [r for r in _load_spec_records(paths.specs_dir) if r.get("name") == name]
+    label = f"{category}:{name}" if category else name
+    if not records:
+        raise FileNotFoundError(f"Spec name not found: {label}")
+    if category:
+        records = [r for r in records if r.get("category") == category]
+        if not records:
+            raise FileNotFoundError(f"Spec category/name not found: {label}")
+    if version:
+        matches = [r for r in records if r.get("version") == version]
+        if not matches:
+            raise FileNotFoundError(f"Spec name/version not found: {label}@{version}")
+        if len(matches) > 1:
+            files = ", ".join(sorted(item["file"] for item in matches))
+            raise ValueError(f"Multiple specs share the same version for {name}: {files}")
+        return matches[0]["path"]
+    selected = _select_latest(records)
+    return selected["path"]
+
+
+def resolve_spec_reference(
+    use: str,
+    *,
+    category: Optional[str] = None,
+    version: Optional[str] = None,
+    root: Optional[Union[str, Path]] = None,
+) -> Path:
+    base = config_core.resolve_root(root)
+    if _looks_like_spec_path(use):
+        spec_path = _resolve_spec_path(use, base)
+        if not spec_path.exists():
+            raise FileNotFoundError(
+                f"{spec_path} not found. Install the spec before adding rules."
+            )
+        return spec_path
+    return _resolve_spec_by_name(use, category=category, version=version, base=base)
+
+
+def resolve_pruner_spec_reference(
+    use: str,
+    *,
+    version: Optional[str] = None,
+    root: Optional[Union[str, Path]] = None,
+) -> Path:
+    base = config_core.resolve_root(root)
+    candidate = Path(use)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.parts and candidate.parts[0] == "pruner_specs":
+        spec_path = base / candidate
+        if spec_path.exists():
+            return spec_path
+    if candidate.suffix.lower() in _SPEC_EXTS:
+        spec_path = base / "pruner_specs" / candidate
+        if spec_path.exists():
+            return spec_path
+    paths = config_core.paths(root=base)
+    records = [r for r in _load_pruner_spec_records(paths.pruner_specs_dir) if r.get("name") == use]
+    if not records:
+        raise FileNotFoundError(f"Pruner spec name not found: {use}")
+    if version:
+        matches = [r for r in records if r.get("version") == version]
+        if not matches:
+            raise FileNotFoundError(f"Pruner spec name/version not found: {use}@{version}")
+        if len(matches) > 1:
+            files = ", ".join(sorted(item["file"] for item in matches))
+            raise ValueError(f"Multiple pruner specs share the same version for {use}: {files}")
+        return matches[0]["path"]
+    selected = _select_latest(records)
+    return selected["path"]
 
 
 def _write_file(target: Path, content: str) -> None:
@@ -681,7 +1132,11 @@ __all__ = [
     "add",
     "add_rule_data",
     "add_spec_data",
+    "add_pruner_spec_data",
     "install_examples",
+    "install_map",
+    "resolve_spec_reference",
+    "resolve_pruner_spec_reference",
     "list_installed",
     "remove",
 ]
