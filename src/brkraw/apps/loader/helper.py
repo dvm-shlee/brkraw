@@ -9,6 +9,7 @@ from types import MethodType
 from typing import TYPE_CHECKING, Optional, Tuple, Union, Any, Mapping, cast, List, Dict
 from pathlib import Path
 from warnings import warn
+import logging
 
 import numpy as np
 from nibabel.nifti1 import Nifti1Image
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from ...resolver.nifti import Nifti1HeaderContents
     from .types import SubjectType, SubjectPose, XYZUNIT, TUNIT
 
+logger = logging.getLogger("brkraw")
+
 
 def make_dir(names: List[str]):
     """Return a stable __dir__ function for a module."""
@@ -38,9 +41,32 @@ def make_dir(names: List[str]):
     return _dir
 
 
+def _resolve_reco_id(
+    scan: Union["Scan", "ScanLoader"],
+    reco_id: Optional[int],
+) -> Optional[int]:
+    """Resolve a reco id, defaulting to the first available when None."""
+    scan = cast(ScanLoader, scan)
+    available = list(scan.avail.keys())
+    if not available:
+        logger.warning("No reco ids available for scan %s", getattr(scan, "scan_id", "?"))
+        return None
+    if reco_id is None:
+        return available[0]
+    if reco_id not in scan.avail:
+        logger.warning(
+            "Reco id %s not available for scan %s (available: %s)",
+            reco_id,
+            getattr(scan, "scan_id", "?"),
+            available,
+        )
+        return None
+    return reco_id
+
+
 def _resolve_data_and_affine(
     scan: Union["Scan", "ScanLoader"],
-    reco_id: int = 1,
+    reco_id: Optional[int] = None,
     *,
     affine_decimals: int = 6,
 ):
@@ -53,20 +79,34 @@ def _resolve_data_and_affine(
     """
     scan = cast(ScanLoader, scan)
 
-    image_info = image_resolver.resolve(scan, reco_id)
-    # force unwrap pose to scanner's view
-    affine_info = affine_resolver.resolve(
-        scan, reco_id, decimals=affine_decimals, unwrap_pose=True
-    )
+    reco_ids = [reco_id] if reco_id is not None else list(scan.avail.keys())
+    if not reco_ids:
+        logger.warning("No reco ids available to resolve for scan %s", getattr(scan, "scan_id", "?"))
+        return
 
-    if hasattr(scan, "image_info"):
-        scan.image_info[reco_id] = image_info
-    else:
-        setattr(scan, "image_info", {reco_id: image_info})
-    if hasattr(scan, "affine_info"):
-        scan.affine_info[reco_id] = affine_info
-    else:
-        setattr(scan, "affine_info", {reco_id: affine_info})
+    for rid in reco_ids:
+        if rid not in scan.avail:
+            logger.warning(
+                "Reco id %s not available for scan %s (available: %s)",
+                rid,
+                getattr(scan, "scan_id", "?"),
+                list(scan.avail.keys()),
+            )
+            continue
+        image_info = image_resolver.resolve(scan, rid)
+        # force unwrap pose to scanner's view
+        affine_info = affine_resolver.resolve(
+            scan, rid, decimals=affine_decimals, unwrap_pose=True
+        )
+
+        if hasattr(scan, "image_info"):
+            scan.image_info[rid] = image_info
+        else:
+            setattr(scan, "image_info", {rid: image_info})
+        if hasattr(scan, "affine_info"):
+            scan.affine_info[rid] = affine_info
+        else:
+            setattr(scan, "affine_info", {rid: affine_info})
     scan.get_fid = MethodType(fid_resolver.resolve, scan)
 
 
@@ -209,13 +249,13 @@ def _search_parameters(
 
 
 def _get_dataobj(
-    self: Union["Scan", "ScanLoader"], reco_id: int = 1
+    self: Union["Scan", "ScanLoader"], reco_id: Optional[int] = None
 ) -> Optional[Union[Tuple["np.ndarray", ...], "np.ndarray"]]:
     """Return reconstructed data for a reco, split by slice pack if needed.
 
     Args:
         self: Scan or ScanLoader instance.
-        reco_id: Reco identifier to read (default: 1).
+    reco_id: Reco identifier to read (defaults to the first available).
 
     Returns:
         Single ndarray when one slice pack exists; otherwise a tuple of arrays.
@@ -224,8 +264,11 @@ def _get_dataobj(
     if not hasattr(self, "image_info") or not hasattr(self, "affine_info"):
         return None
     self = cast(ScanLoader, self)
-    affine_info = self.affine_info.get(reco_id)
-    image_info = self.image_info.get(reco_id)
+    resolved_reco_id = _resolve_reco_id(self, reco_id)
+    if resolved_reco_id is None:
+        return None
+    affine_info = self.affine_info.get(resolved_reco_id)
+    image_info = self.image_info.get(resolved_reco_id)
     if affine_info is None or image_info is None:
         return None
 
@@ -246,7 +289,7 @@ def _get_dataobj(
 
 def _get_affine(
     self: Union["Scan", "ScanLoader"],
-    reco_id: int = 1,
+    reco_id: Optional[int] = None,
     *,
     unwrap_pose: bool = False,
     override_subject_type: Optional[SubjectType] = None,
@@ -261,7 +304,7 @@ def _get_affine(
 
     Args:
         self: Scan or ScanLoader instance.
-        reco_id: Reco identifier to read (default: 1).
+    reco_id: Reco identifier to read (defaults to the first available).
         unwrap_pose: If True, return scanner-view affines. If False, return
             subject-view affines aligned to RAS (default: False).
         override_subject_type: Subject type override used for subject-view
@@ -281,14 +324,17 @@ def _get_affine(
         return None
 
     self = cast(ScanLoader, self)
-    affine_info = self.affine_info.get(reco_id)
+    resolved_reco_id = _resolve_reco_id(self, reco_id)
+    if resolved_reco_id is None:
+        return None
+    affine_info = self.affine_info.get(resolved_reco_id)
     if affine_info is None:
         return None
     num_slice_packs = affine_info["num_slice_packs"]
     affines = affine_info["affines"]
 
     if not unwrap_pose:
-        visu_pars = get_file(self.avail[reco_id], "visu_pars")
+        visu_pars = get_file(self.avail[resolved_reco_id], "visu_pars")
         subj_type, subj_pose = affine_resolver.get_subject_type_and_position(visu_pars)
         override_subject_type = override_subject_type or subj_type
         override_subject_pose = override_subject_pose or subj_pose
@@ -313,7 +359,7 @@ def _get_affine(
 
 def _get_nifti1image(
     self: Union["Scan", "ScanLoader"],
-    reco_id: int = 1,
+    reco_id: Optional[int] = None,
     *,
     unwrap_pose: bool = False,
     override_header: Optional[Nifti1HeaderContents] = None,
@@ -327,7 +373,7 @@ def _get_nifti1image(
 
     Args:
         self: Scan or ScanLoader instance.
-        reco_id: Reco identifier to read (default: 1).
+    reco_id: Reco identifier to read (defaults to the first available).
         unwrap_pose: If True, use scanner-view affines. If False, use
             subject-view affines (default: False).
         override_header: Optional header values to apply.
@@ -348,14 +394,17 @@ def _get_nifti1image(
         return None
 
     self = cast(ScanLoader, self)
-    dataobjs = self.get_dataobj(reco_id)
+    resolved_reco_id = _resolve_reco_id(self, reco_id)
+    if resolved_reco_id is None:
+        return None
+    dataobjs = self.get_dataobj(resolved_reco_id)
     affines = self.get_affine(
-        reco_id,
+        resolved_reco_id,
         unwrap_pose=unwrap_pose,
         override_subject_type=override_subject_type,
         override_subject_pose=override_subject_pose,
     )
-    image_info = self.image_info.get(reco_id)
+    image_info = self.image_info.get(resolved_reco_id)
 
     if dataobjs is None or affines is None or image_info is None:
         return None
@@ -425,7 +474,7 @@ def _resolve_metadata_spec(
 
 def _get_metadata(
     self,
-    reco_id: int = 1,
+    reco_id: Optional[int] = None,
     spec: Optional[Union[Mapping[str, Any], str, Path]] = None,
     map_file: Optional[Union[str, Path]] = None,
     return_spec: bool = False,
@@ -434,7 +483,7 @@ def _get_metadata(
 
     Args:
         self: Scan instance.
-        reco_id: Reco identifier (default: 1).
+    reco_id: Reco identifier (defaults to the first available).
         spec: Optional spec mapping or spec file path.
         map_file: Optional mapping file override.
         return_spec: If True, return spec info alongside metadata.
@@ -444,6 +493,11 @@ def _get_metadata(
         return_spec is True, returns (metadata, spec_info).
     """
     scan = cast(ScanLoader, self)
+    resolved_reco_id = _resolve_reco_id(scan, reco_id)
+    if resolved_reco_id is None:
+        if return_spec:
+            return None, None
+        return None
     base = resolve_root(None)
     resolved = _resolve_metadata_spec(scan, spec, base=base)
     if resolved is None:

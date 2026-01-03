@@ -37,7 +37,7 @@ class GetDataobjType(Protocol[P]):
     def __call__(
         self,
         scan: "Scan",
-        reco_id: int,
+        reco_id: Optional[int],
         *args: P.args,
         **kwargs: P.kwargs
     ) -> Optional[Union[Tuple["np.ndarray", ...], "np.ndarray"]]:
@@ -49,7 +49,7 @@ class GetAffineType(Protocol):
     def __call__(
         self,
         scan: "Scan",
-        reco_id: int,
+        reco_id: Optional[int],
         *,
         unwrap_pose: bool,
         override_subject_type: Optional[SubjectType],
@@ -64,7 +64,7 @@ class GetNifti1ImageType(Protocol):
     def __call__(
         self,
         scan: "Scan",
-        reco_id: int = 1,
+        reco_id: Optional[int] = None,
         *,
         override_header: Optional[Union[dict, "Nifti1HeaderContents"]],
         unwrap_pose: bool,
@@ -112,13 +112,13 @@ class ScanLoader(Scan, BaseLoader):
 
     def get_dataobj(
             self, 
-            reco_id: int
+            reco_id: Optional[int] = None
             ) -> Optional[Union[Tuple["np.ndarray", ...], "np.ndarray"]]: 
         ...
 
     def get_affine(
             self, 
-            reco_id: int,
+            reco_id: Optional[int] = None,
             *,
             unwrap_pose: bool,
             override_subject_type: Optional[SubjectType],
@@ -128,7 +128,7 @@ class ScanLoader(Scan, BaseLoader):
 
     def get_nifti1image(
             self, 
-            reco_id: int = 1, 
+            reco_id: Optional[int] = None, 
             *, 
             override_header: Optional[Union[dict, "Nifti1HeaderContents"]],
             unwrap_pose: bool,
@@ -142,7 +142,7 @@ class ScanLoader(Scan, BaseLoader):
 
     def get_metadata(
             self, 
-            reco_id: int = 1,
+            reco_id: Optional[int] = None,
             spec: Optional[Union[Mapping[str, Any], str, "Path"]] = None,
             map_file: Optional[Union[str, "Path"]] = None,
             return_spec: bool = False,

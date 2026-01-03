@@ -272,12 +272,12 @@ class BrukerLoader:
             return None
         return scan.get_fid(buffer_start=buffer_start, buffer_size=buffer_size, as_complex=as_complex)
 
-    def get_dataobj(self, scan_id: int, reco_id: int = 1) -> Optional[Union[Tuple["np.ndarray", ...], "np.ndarray"]]:
+    def get_dataobj(self, scan_id: int, reco_id: Optional[int] = None) -> Optional[Union[Tuple["np.ndarray", ...], "np.ndarray"]]:
         """Return reconstructed data for a scan/reco via attached helper.
 
         Args:
             scan_id: Scan identifier.
-            reco_id: Reco identifier (default: 1).
+            reco_id: Reco identifier (defaults to the first available).
 
         Returns:
             Single ndarray when one slice pack exists; otherwise a tuple.
@@ -287,7 +287,7 @@ class BrukerLoader:
 
     def get_affine(self, 
                    scan_id: int, 
-                   reco_id: int = 1,
+                   reco_id: Optional[int] = None,
                    *,
                    unwrap_pose: bool = False,
                    override_subject_type: Optional[SubjectType] = None,
@@ -297,7 +297,7 @@ class BrukerLoader:
 
         Args:
             scan_id: Scan identifier.
-            reco_id: Reco identifier (default: 1).
+            reco_id: Reco identifier (defaults to the first available).
             unwrap_pose: If True, return scanner-view affines.
             override_subject_type: Subject type override for subject view.
             override_subject_pose: Subject pose override for subject view.
@@ -311,7 +311,7 @@ class BrukerLoader:
                                override_subject_pose=override_subject_pose, 
                                override_subject_type=override_subject_type)
     
-    def get_nifti1image(self, scan_id: int, reco_id: int = 1,
+    def get_nifti1image(self, scan_id: int, reco_id: Optional[int] = None,
                         *, 
                         unwrap_pose: bool = False, 
                         override_header: Optional[Nifti1HeaderContents] = None,
@@ -324,7 +324,7 @@ class BrukerLoader:
 
         Args:
             scan_id: Scan identifier.
-            reco_id: Reco identifier (default: 1).
+            reco_id: Reco identifier (defaults to the first available).
             unwrap_pose: If True, use scanner-view affines.
             override_header: Optional header values to apply.
             override_subject_type: Subject type override for subject view.
@@ -347,7 +347,7 @@ class BrukerLoader:
     def get_metadata(
         self,
         scan_id: int,
-        reco_id: int = 1,
+        reco_id: Optional[int] = None,
         spec: Optional[Union[Mapping[str, Any], str, Path]] = None,
         map_file: Optional[Union[str, Path]] = None,
         return_spec: bool = False,
@@ -356,7 +356,7 @@ class BrukerLoader:
 
         Args:
             scan_id: Scan identifier.
-            reco_id: Reco identifier (default: 1).
+            reco_id: Reco identifier (defaults to the first available).
             spec: Optional spec mapping or spec file path.
             map_file: Optional mapping file override.
             return_spec: If True, return spec info alongside metadata.
