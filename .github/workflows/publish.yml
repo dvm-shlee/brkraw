@@ -30,8 +30,35 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         run: |
           tag="${{ github.ref_name }}"
-          version="$(python - <<'PY'\nfrom pathlib import Path\nimport re\nimport tomllib\n\npyproject = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))\nversion = None\nif 'project' in pyproject:\n    version = pyproject['project'].get('version')\n\nif not version:\n    version_path = (\n        pyproject.get('tool', {})\n        .get('hatch', {})\n        .get('version', {})\n        .get('path')\n    )\n    if not version_path:\n        raise SystemExit('No version in pyproject.toml and no hatch version path found.')\n    text = Path(version_path).read_text(encoding='utf-8')\n    match = re.search(r\"__version__\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]\", text)\n    if not match:\n        raise SystemExit(f'No __version__ found in {version_path}')\n    version = match.group(1)\n\nprint(version)\nPY\n)"
-          if [ "v${version}" != "${tag}" ]; then
+          version="$(python - <<'PY'
+from pathlib import Path
+import re
+import tomllib
+
+pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+version = None
+if "project" in pyproject:
+    version = pyproject["project"].get("version")
+
+if not version:
+    version_path = (
+        pyproject.get("tool", {})
+        .get("hatch", {})
+        .get("version", {})
+        .get("path")
+    )
+    if not version_path:
+        raise SystemExit("No version in pyproject.toml and no hatch version path found.")
+    text = Path(version_path).read_text(encoding="utf-8")
+    match = re.search(r"__version__\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]", text)
+    if not match:
+        raise SystemExit(f"No __version__ found in {version_path}")
+    version = match.group(1)
+
+print(version)
+PY
+)"
+          if [ "${tag}" != "${version}" ] && [ "${tag}" != "v${version}" ]; then
             echo "Tag ${tag} does not match package version ${version}."
             exit 1
           fi
