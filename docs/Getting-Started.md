@@ -28,10 +28,15 @@ brkraw init
 Optional flags:
 
 - `--root` to override the config root.
+
 - `--no-config` to skip creating `config.yaml`.
+
 - `--no-exist-ok` to fail if the root already exists.
+
 - `--install-example` to install the example rules/specs from `assets/examples`.
+
 - `--shell-rc` to append shell helper functions to a specific rc file.
+
 - `--yes` to skip prompts and accept defaults.
 
 By default, `brkraw init` prompts for config values and optional installs.

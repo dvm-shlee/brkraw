@@ -29,7 +29,7 @@ data = scan.get_dataobj(reco_id=1)
 ```python
 nii = loader.get_nifti1image(3, reco_id=1)
 if isinstance(nii, tuple):
-    # Multiple slice packs
+    # Multiple slice packs (suffix controlled by output.slicepack_suffix in config)
     for i, img in enumerate(nii, start=1):
         img.to_filename(f"scan3_slpack{i}.nii.gz")
 else:

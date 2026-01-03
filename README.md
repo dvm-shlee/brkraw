@@ -34,9 +34,13 @@ See `docs/Getting-Started.md` for setup and first-run steps.
 Core capabilities:
 
 - Load Paravision datasets from directories or zip archives.
+
 - Inspect study/scan metadata with rich CLI tables.
+
 - Map parameters via remapper specs and rule-based selection.
+
 - Convert scans to NIfTI with configurable filename templates.
+
 - Manage installed specs, rules, and transforms.
 
 ## Extensibility
@@ -44,9 +48,13 @@ Core capabilities:
 BrkRaw is designed for extension without modifying the core repository:
 
 - Rules select specs or converter overrides based on Paravision parameters.
+
 - Specs map parameter files into structured metadata.
+
 - Converter entrypoints override data/affine/NIfTI generation for specialized
+
   sequences.
+
 - CLI plugins can add commands via entrypoints.
 
 See `docs/Addons-and-Plugins.md` for a full overview and examples in
@@ -55,24 +63,35 @@ See `docs/Addons-and-Plugins.md` for a full overview and examples in
 ## CLI documentation
 
 - `docs/Getting-Started.md`: install and first-run steps
+
 - `docs/cli/CLI-info_and_params.md`: `brkraw info` and `brkraw params`
+
 - `docs/cli/CLI-set_unset_and_env.md`: `brkraw session` helpers
+
 - `docs/cli/CLI-tonii_and_tonii_all.md`: `brkraw tonii` and `brkraw tonii_all`
+
 - `docs/cli/CLI-addon.md`: addon management
+
 - `docs/cli/CLI-config.md`: config management
+
 - `docs/Config.md`: `config.yaml` reference
+
 - `docs/Addons-and-Plugins.md`: rules, specs, converters, and CLI plugins
+
 - `docs/Python-API.md`: Python API usage examples
 
 ## API documentation
 
 - `docs/api/API-Addon.md`: addon API
+
 - `docs/api/API-Output-Format.md`: output format API
+
 - `docs/api/API-Pruner.md`: pruner API
 
 ## Rules and specs
 
 - `docs/RULE-Syntax.md` describes the rule syntax for selecting specs and plugins.
+
 - `docs/SPEC-Syntax.md` describes the spec format and remapper behavior.
 
 ## Contributing

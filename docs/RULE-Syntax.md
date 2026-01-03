@@ -11,12 +11,17 @@ A rule file may contain any of the following top-level keys. You can mix them
 in a single file.
 
 - `info_spec`: rules that choose which scan metadata spec to use when calling
+
   info-related commands or methods (for example, metadata parsing in the scan
   resolver).
+
 - `metadata_spec`: rules that choose which metadata spec to use when generating
+
   sidecar metadata, especially when a separate rule set is needed for metadata
   creation.
+
 - `converter_entrypoint`: rules that choose a converter entry point. These are
+
   used by the loader when converting to NIfTI so that a custom reconstruction
   can be selected for scans matching the rule conditions.
 
@@ -24,12 +29,16 @@ Example:
 
 ```yaml
 info_spec:
+
   - name: "mrs-info"
+
     description: "MRS method uses custom info spec"
     when:
       method:
         sources:
+
           - file: acqp
+
             key: ACQ_XXX
     if:
       eq: ["$method", "MRS"]
@@ -37,17 +46,24 @@ info_spec:
     version: "1.0.0"
 
 converter_entrypoint:
+
   - name: "mrs-reco"
+
     description: "MRS reconstruction plugin"
     when:
       method:
         sources:
+
           - file: acqp
+
             key: ACQ_XXX
     if:
       any:
+
         - eq: ["$method", "MRS"]
+
         - in: ["$method", ["MRS2", "MRS3"]]
+
     use: "mrs-reco"
 ```
 
@@ -56,11 +72,17 @@ converter_entrypoint:
 Each rule item supports:
 
 - `name` (required): identifier for logging/debugging.
+
 - `description` (optional): human-readable explanation.
+
 - `when` (required): variable bindings using remapper-style sources. Each
+
   variable may include `transform` to normalize values before matching.
+
 - `if` (optional): condition expression using the variables from `when`.
+
 - `use` (required): target spec name or spec path, or entry point name.
+
 - `version` (optional): spec version to select when `use` is a spec name.
 
 ## Variable Binding (`when`)
@@ -78,7 +100,9 @@ Example:
 when:
   method:
     sources:
+
       - file: acqp
+
         key: ACQ_XXX
     transform: normalize_method
 ```
@@ -90,14 +114,23 @@ This binds `$method` to the first available value from the sources list.
 The `if` field uses a simple structured expression. Supported operators:
 
 - `eq`: `["$var", "value"]`
+
 - `ne`: `["$var", "value"]`
+
 - `in`: `["$var", ["A", "B"]]`
+
 - `regex`: `["$var", "^prefix"]`
+
 - `startswith`: `["$var", "prefix"]`
+
 - `contains`: `["$var", "substring"]`
+
 - `gt`, `ge`, `lt`, `le`: numeric comparisons
+
 - `any`: list of expressions (OR)
+
 - `all`: list of expressions (AND)
+
 - `not`: single expression (NOT)
 
 Example:
@@ -105,22 +138,31 @@ Example:
 ```yaml
 if:
   any:
+
     - eq: ["$method", "XXXX"]
+
     - in: ["$method", ["A", "B", "C"]]
+
 ```
 
 ## Targets (`use`)
 
 - `info_spec`/`metadata_spec` can use a spec name or a YAML spec path under
+
   `~/.brkraw/specs/` (or another configured root).
+
 - Transforms for `info_spec`/`metadata_spec` are defined in the spec file under
+
   `__meta__.transforms_source`.
+
 - `converter_entrypoint` uses the entry point name registered under
+
   `brkraw.converter` (or another configured group).
 
 When `use` is a spec name, rules will:
 
 - match `__meta__.category` to the rule category (`info_spec` or `metadata_spec`)
+
 - select `version` if provided, otherwise the latest version
 
 ## Override Behavior

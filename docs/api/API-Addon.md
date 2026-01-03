@@ -21,6 +21,7 @@ Returns:
 Errors:
 
 - `FileNotFoundError`: source file not found.
+
 - `ValueError`: unsupported file type or invalid YAML content.
 
 Notes:
@@ -44,7 +45,9 @@ print(data["maps"])
 Returns:
 
 - Dict with keys `specs`, `rules`, `transforms`, `maps`.
+
 - Pruner specs are listed under `pruner_specs`.
+
 - Each list contains dicts with fields such as `file`, `name`, `version`, `description`, `category`.
 
 ## remove
@@ -67,7 +70,9 @@ Returns:
 Errors:
 
 - `FileNotFoundError`: no matching file found.
+
 - `RuntimeError`: dependencies detected (unless `force=True`).
+
 - `ValueError`: invalid `kind`.
 
 ## resolve_spec_reference
@@ -91,6 +96,7 @@ Returns:
 Errors:
 
 - `FileNotFoundError`: spec not found for name/category/version.
+
 - `ValueError`: multiple matches for the same name/version.
 
 ## resolve_pruner_spec_reference
@@ -125,5 +131,7 @@ Returns:
 Errors:
 
 - `FileNotFoundError`: map file or spec not found.
+
 - `RuntimeError`: map already attached (use `force=True`).
+
 - `ValueError`: target spec is not installed.

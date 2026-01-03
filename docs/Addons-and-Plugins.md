@@ -6,7 +6,9 @@ entrypoints, and CLI plugins.
 ## Concepts
 
 BrkRaw separates *selection logic* (rules) from *parameter mapping* (specs) and
+
 *conversion overrides* (converter_entrypoint). This lets you compose behavior
+
 without modifying core code.
 
 ### Rules
@@ -20,7 +22,9 @@ matches, BrkRaw chooses the corresponding spec or converter override.
 Specs define how parameters are mapped into structured outputs:
 
 - `info_spec` controls what `brkraw info` shows.
+
 - `metadata_spec` controls how `get_metadata` builds sidecar JSON (for example,
+
   a BIDS-like schema).
 
 Each spec must include a `__meta__` block with required fields:
@@ -35,7 +39,9 @@ by rules. Specs may also include optional author/developer and citation fields.
 Converter entrypoints provide optional override callables for:
 
 - `get_dataobj`
+
 - `get_affine`
+
 - `get_nifti1image`
 
 This makes it possible to swap in sequence-specific conversion logic. For
@@ -47,15 +53,20 @@ custom reconstruction path that reads from FID data.
 Rules can select:
 
 - a spec (rule + spec), or
+
 - a converter override (rule + converter_entrypoint), or
+
 - both.
 
 This enables conditional conversion:
 
 ```plain
 if method/acqp/visu parameters match X
+
   -> use spec A
+
   -> use converter entrypoint B
+
 ```
 
 ## Managing addons
@@ -65,13 +76,17 @@ under `pruner_specs/`. Use the `addon` CLI to install, list, and remove them.
 Mapping files live in the `maps/` folder and are managed alongside specs:
 
 - `brkraw addon add path/to/spec.yaml`
+
 - `brkraw addon attach-map path/to/maps.yaml metadata_common`
+
 - `brkraw addon list`
+
 - `brkraw addon rm "spec.yaml" --force`
 
 See `assets/examples/` for working examples, including:
 
 - MRS `info_spec` for controlling `brkraw info`
+
 - `metadata_spec` for BIDS-like sidecar metadata
 
 See `docs/api/API-Addon.md` for the addon API reference.
@@ -91,7 +106,9 @@ BrkRaw supports CLI extensions via entrypoints, so new commands can be shipped
 without touching the core repository. Planned plugins include:
 
 - BIDS tooling (legacy tools from earlier versions)
+
 - Backup/export utilities
+
 - GUI tools
 
 These will be distributed as external plugins and registered via the

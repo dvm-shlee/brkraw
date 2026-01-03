@@ -9,6 +9,7 @@ Create the config root and optional `config.yaml`.
 Examples:
 
 - `brkraw config init`
+
 - `brkraw config init --no-config`
 
 ## brkraw config show
@@ -36,9 +37,13 @@ Remove config data with optional selective retention.
 Examples:
 
 - `brkraw config clear`
+
 - `brkraw config clear --keep-specs --keep-rules`
+
 - `brkraw config clear --keep-pruner-specs`
+
 - `brkraw config clear --keep-maps`
+
 - `brkraw config clear --keep-shell-helpers`
 
 ## brkraw config path
@@ -48,7 +53,9 @@ Print a specific config path.
 Example:
 
 - `brkraw config path specs`
+
 - `brkraw config path pruner_specs`
+
 - `brkraw config path maps`
 
 ## brkraw config set
@@ -58,7 +65,9 @@ Set a config key to a YAML value.
 Example:
 
 - `brkraw config set output.format_fields '[{key: Subject.ID, entry: sub, hide: false}]'`
+
 - `brkraw config set output.format_spec=metadata_common`
+
 - `brkraw config set logging.level=DEBUG`
 
 ## brkraw config unset
