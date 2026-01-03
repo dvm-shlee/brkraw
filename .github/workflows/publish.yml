@@ -28,13 +28,39 @@ jobs:
           python -m pip install build twine
       - name: Verify version matches tag
         if: ${{ github.event_name == 'release' }}
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          tag="${{ github.ref_name }}"
-          version="$(python -c $'from pathlib import Path\\nimport re\\nimport tomllib\\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text(encoding=\"utf-8\"))\\nversion = pyproject.get(\"project\", {}).get(\"version\")\\nif not version:\\n    version_path = pyproject.get(\"tool\", {}).get(\"hatch\", {}).get(\"version\", {}).get(\"path\")\\n    if not version_path:\\n        raise SystemExit(\"No version in pyproject.toml and no hatch version path found.\")\\n    text = Path(version_path).read_text(encoding=\"utf-8\")\\n    match = re.search(r\"__version__\\\\s*=\\\\s*[\\\\'\\\\\\\"]([^\\\\'\\\\\\\"]+)[\\\\'\\\\\\\"]\", text)\\n    if not match:\\n        raise SystemExit(f\"No __version__ found in {version_path}\")\\n    version = match.group(1)\\nprint(version)')"
-          if [ "${tag}" != "${version}" ] && [ "${tag}" != "v${version}" ]; then
-            echo "Tag ${tag} does not match package version ${version}."
-            exit 1
-          fi
+          python -c 'code = """import os
+          import sys
+          import re
+          import tomllib
+          from pathlib import Path
+          from packaging.version import parse
+
+          tag = os.environ["TAG"]
+          print(f"Target Tag: {tag}")
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          version = pyproject.get("project", {}).get("version")
+          if not version:
+              version_path = pyproject.get("tool", {}).get("hatch", {}).get("version", {}).get("path")
+              if not version_path:
+                  raise SystemExit("No version in pyproject.toml and no hatch version path found.")
+              text = Path(version_path).read_text(encoding="utf-8")
+              match = re.search(r"__version__\\s*=\\s*[\"\x27]([^\"]+)[\"\x27]", text)
+              if not match:
+                  raise SystemExit(f"No __version__ found in {version_path}")
+              version = match.group(1)
+          
+          print(f"Detected Package Version: {version}")
+
+          # Normalize versions and compare (handles v-prefix and alpha/beta notations)
+          if parse(tag) != parse(version):
+              raise SystemExit(f"Tag {tag} does not match package version {version}.")
+          
+          print("Version check passed!")
+          \"\"\"; exec(code)'
       - name: Build dist
         run: python -m build
       - name: Check dist metadata
@@ -49,8 +75,10 @@ jobs:
     needs: [build]
     permissions:
       id-token: write
+      contents: write
     environment:
       name: ${{ inputs.target || 'pypi' }}
+      url: https://${{ (inputs.target == 'pypi' || github.event_name == 'release') && 'pypi.org' || 'test.pypi.org' }}/p/brkraw
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -70,10 +98,13 @@ jobs:
         with:
           packages-dir: dist/
           repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TESTPYPI_API_TOKEN }}
+      - name: Upload artifacts to GitHub Release
+        if: ${{ github.event_name == 'release' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} dist/* --clobber
       - name: Publish to PyPI
         if: ${{ steps.target.outputs.target == 'pypi' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-          password: ${{ secrets.PYPI_API_TOKEN }}
