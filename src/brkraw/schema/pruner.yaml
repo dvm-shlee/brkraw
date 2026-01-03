@@ -4,10 +4,9 @@ title: "BrkRaw Pruner Spec"
 type: object
 additionalProperties: false
 properties:
-  source:
-    type: string
-  dest:
-    type: string
+  __meta__:
+    type: object
+    additionalProperties: true
   files:
     type: array
     minItems: 1
@@ -28,16 +27,13 @@ properties:
           - number
           - boolean
           - "null"
-  dir_rules:
+  dirs:
     type: array
     items:
       type: object
       additionalProperties: false
-      required: ["mode", "level", "dirs"]
+      required: ["level", "dirs"]
       properties:
-        mode:
-          type: string
-          enum: ["keep", "drop"]
         level:
           type: integer
           minimum: 1
@@ -53,4 +49,5 @@ properties:
   root_name:
     type: string
 required:
+  - __meta__
   - files

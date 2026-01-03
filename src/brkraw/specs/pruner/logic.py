@@ -19,7 +19,7 @@ def prune_dataset_to_zip(
     *,
     mode: Literal["keep", "drop"] = "keep",
     update_params: Optional[Mapping[str, Mapping[str, Optional[str]]]] = None,
-    dir_rules: Optional[Iterable[Mapping[str, Any]]] = None,
+    dirs: Optional[Iterable[Mapping[str, Any]]] = None,
     add_root: bool = True,
     root_name: Optional[str] = None,
 ) -> Path:
@@ -31,7 +31,7 @@ def prune_dataset_to_zip(
         files: Filenames or relative paths used by the selection mode.
         mode: "keep" to include only matching files, "drop" to exclude them.
         update_params: Mapping of {filename: {key: value}} JCAMP edits.
-        dir_rules: Directory rules as a list of {mode, level, dirs} mappings.
+        dirs: Directory rules as a list of {level, dirs} mappings.
         add_root: Whether to include a top-level root directory in the zip.
         root_name: Override the root directory name when add_root is True.
 
@@ -49,7 +49,7 @@ def prune_dataset_to_zip(
     if mode not in {"keep", "drop"}:
         raise ValueError("mode must be 'keep' or 'drop'.")
 
-    rule_specs = _normalize_dir_rules(dir_rules)
+    rule_specs = _normalize_dir_rules(dirs, mode)
     selected_files = _select_files(fs, selectors, mode=mode, dir_rules=rule_specs)
     if not selected_files:
         raise ValueError(f"No files remain after applying {mode} list.")
@@ -89,18 +89,16 @@ def prune_dataset_to_zip_from_spec(
         if validate:
             validate_prune_spec(spec_data)
 
-    src = source or spec_data.get("source")
-    dst = dest or spec_data.get("dest")
-    if src is None or dst is None:
-        raise ValueError("prune spec must include source and dest.")
+    if source is None or dest is None:
+        raise ValueError("source and dest are required for prune spec.")
 
     return prune_dataset_to_zip(
-        src,
-        dst,
+        source,
+        dest,
         files=spec_data.get("files", []),
         mode=spec_data.get("mode", "keep"),
         update_params=spec_data.get("update_params"),
-        dir_rules=spec_data.get("dir_rules"),
+        dirs=spec_data.get("dirs"),
         add_root=spec_data.get("add_root", True),
         root_name=spec_data.get("root_name"),
     )
@@ -242,25 +240,25 @@ def _apply_jcamp_updates(
     return params.source_text()
 
 
-def _normalize_dir_rules(rules: Optional[Iterable[Mapping[str, Any]]]) -> List[Dict[str, Any]]:
+def _normalize_dir_rules(
+    rules: Optional[Iterable[Mapping[str, Any]]],
+    mode: Literal["keep", "drop"],
+) -> List[Dict[str, Any]]:
     if not rules:
         return []
     normalized: List[Dict[str, Any]] = []
     for idx, rule in enumerate(rules):
         if not isinstance(rule, Mapping):
-            raise ValueError(f"dir_rules[{idx}] must be a mapping.")
-        mode = str(rule.get("mode", "")).strip().lower()
-        if mode not in {"keep", "drop"}:
-            raise ValueError(f"dir_rules[{idx}].mode must be 'keep' or 'drop'.")
+            raise ValueError(f"dirs[{idx}] must be a mapping.")
         level = rule.get("level")
         if not isinstance(level, int) or level < 1:
-            raise ValueError(f"dir_rules[{idx}].level must be int >= 1.")
+            raise ValueError(f"dirs[{idx}].level must be int >= 1.")
         dirs = rule.get("dirs")
         if not isinstance(dirs, Iterable):
-            raise ValueError(f"dir_rules[{idx}].dirs must be a list of names.")
+            raise ValueError(f"dirs[{idx}].dirs must be a list of names.")
         names = [str(d).strip() for d in dirs if str(d).strip()]
         if not names:
-            raise ValueError(f"dir_rules[{idx}].dirs must contain at least one name.")
+            raise ValueError(f"dirs[{idx}].dirs must contain at least one name.")
         normalized.append({"mode": mode, "level": level, "dirs": set(names)})
     normalized.sort(key=lambda item: item["level"])
     return normalized

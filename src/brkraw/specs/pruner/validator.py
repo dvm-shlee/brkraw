@@ -6,6 +6,7 @@ import importlib.resources as resources
 
 import yaml
 
+from ..meta import validate_meta
 
 def validate_prune_spec(spec: Mapping[str, Any], schema_path: Optional[Path] = None) -> List[str]:
     """Validate a prune spec against schema.
@@ -30,6 +31,12 @@ def validate_prune_spec(spec: Mapping[str, Any], schema_path: Optional[Path] = N
             prefix = f"spec.{path}" if path else "spec"
             errors.append(f"{prefix}: {err.message}")
 
+    errors.extend(
+        validate_meta(
+            spec.get("__meta__"),
+            raise_on_error=False,
+        )
+    )
     if errors:
         raise ValueError("Invalid prune spec:\n" + "\n".join(errors))
     return errors
@@ -52,6 +59,16 @@ def _validate_spec_minimal(spec: Mapping[str, Any]) -> List[str]:
         errors.append("spec: must be a mapping.")
         return errors
 
+    if "__meta__" not in spec:
+        errors.append("spec.__meta__: is required.")
+    else:
+        errors.extend(
+            validate_meta(
+                spec.get("__meta__"),
+                raise_on_error=False,
+            )
+        )
+
     files = spec.get("files")
     if not isinstance(files, list) or not files:
         errors.append("spec.files: must be a non-empty list.")
@@ -68,22 +85,20 @@ def _validate_spec_minimal(spec: Mapping[str, Any]) -> List[str]:
     if update_params is not None and not isinstance(update_params, Mapping):
         errors.append("spec.update_params: must be a mapping.")
 
-    dir_rules = spec.get("dir_rules")
-    if dir_rules is not None and not isinstance(dir_rules, list):
-        errors.append("spec.dir_rules: must be a list.")
-    if isinstance(dir_rules, list):
-        for idx, rule in enumerate(dir_rules):
+    dirs = spec.get("dirs")
+    if dirs is not None and not isinstance(dirs, list):
+        errors.append("spec.dirs: must be a list.")
+    if isinstance(dirs, list):
+        for idx, rule in enumerate(dirs):
             if not isinstance(rule, Mapping):
-                errors.append(f"spec.dir_rules[{idx}]: must be a mapping.")
+                errors.append(f"spec.dirs[{idx}]: must be a mapping.")
                 continue
-            if rule.get("mode") not in {"keep", "drop"}:
-                errors.append(f"spec.dir_rules[{idx}].mode: must be 'keep' or 'drop'.")
             level = rule.get("level")
             if not isinstance(level, int) or level < 1:
-                errors.append(f"spec.dir_rules[{idx}].level: must be int >= 1.")
+                errors.append(f"spec.dirs[{idx}].level: must be int >= 1.")
             dirs = rule.get("dirs")
             if not isinstance(dirs, list) or not dirs:
-                errors.append(f"spec.dir_rules[{idx}].dirs: must be a non-empty list.")
+                errors.append(f"spec.dirs[{idx}].dirs: must be a non-empty list.")
 
     add_root = spec.get("add_root")
     if add_root is not None and not isinstance(add_root, bool):
@@ -92,14 +107,6 @@ def _validate_spec_minimal(spec: Mapping[str, Any]) -> List[str]:
     root_name = spec.get("root_name")
     if root_name is not None and not isinstance(root_name, str):
         errors.append("spec.root_name: must be a string.")
-
-    source = spec.get("source")
-    if source is not None and not isinstance(source, str):
-        errors.append("spec.source: must be a string.")
-
-    dest = spec.get("dest")
-    if dest is not None and not isinstance(dest, str):
-        errors.append("spec.dest: must be a string.")
 
     return errors
 
