@@ -1,4 +1,4 @@
-site_name: BrkRaw
+site_name: Preclinical MRI dataset toolkit
 site_description: Bruker Paravision dataset loader and NIfTI converter
 site_url: https://brkraw.github.io/
 repo_url: https://github.com/BrkRaw/brkraw
@@ -8,6 +8,10 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
+  logo: assets/brkraw-logo.svg
+  font:
+    text: Space Grotesk
+    code: JetBrains Mono
   features:
     - navigation.tabs
     - navigation.top
