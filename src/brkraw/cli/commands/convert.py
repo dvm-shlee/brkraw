@@ -704,7 +704,7 @@ def _parse_hook_args(values: List[str]) -> Dict[str, Dict[str, Any]]:
         key = key.strip()
         if not hook_name or not key:
             raise ValueError("Hook args must include hook name and key.")
-        coerced_value = _coerce_scalar(value.strip())
+        coerced_value = _coerce_hook_value(value.strip())
         logger.debug("Parsed hook arg %s:%s=%s", hook_name, key, coerced_value)
         parsed.setdefault(hook_name, {})[key] = coerced_value
     logger.debug("Parsed hook args: %s", parsed)
@@ -750,6 +750,29 @@ def _coerce_scalar(value: str) -> Any:
         return float(value)
     except ValueError:
         return value
+
+
+def _coerce_hook_value(value: str) -> Any:
+    if value.startswith("[") and value.endswith("]"):
+        return _coerce_bracketed_value(value, list)
+    if value.startswith("(") and value.endswith(")"):
+        return _coerce_bracketed_value(value, tuple)
+    if "," in value:
+        return tuple(_coerce_scalar(part.strip()) for part in value.split(",") if part.strip())
+    return _coerce_scalar(value)
+
+
+def _coerce_bracketed_value(value: str, expected_type: type) -> Any:
+    import ast
+
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError) as exc:
+        raise ValueError(f"Invalid hook arg list/tuple: {value}") from exc
+    if not isinstance(parsed, expected_type):
+        label = "list" if expected_type is list else "tuple"
+        raise ValueError(f"Hook arg must be {label}: {value}")
+    return parsed
 
 
 def _to_json_safe(value: Any) -> Any:
