@@ -821,107 +821,129 @@ def _add_convert_args(
         output_help: Help text for the output argument.
         include_scan_reco: Whether to add scan/reco options.
     """
+    selection = parser.add_argument_group("selection")
+    output = parser.add_argument_group("output")
+    metadata = parser.add_argument_group("metadata")
+    orientation = parser.add_argument_group("orientation")
+    data = parser.add_argument_group("data")
+    hooks = parser.add_argument_group("hooks")
+    header = parser.add_argument_group("nifti header")
+
     if include_scan_reco:
-        parser.add_argument(
+        selection.add_argument(
             "-s",
             "--scan-id",
             type=int,
             help="Scan id to convert.",
         )
-        parser.add_argument(
+        selection.add_argument(
             "-r",
             "--reco-id",
             type=int,
             help="Reco id to convert (defaults to all recos when omitted).",
         )
-    parser.add_argument(
-        "--xyz-units",
-        choices=list(get_args(XYZUNIT)),
-        default="mm",
-        help="Spatial units for NIfTI header (default: mm).",
-    )
-    parser.add_argument(
-        "--t-units",
-        choices=list(get_args(TUNIT)),
-        default="sec",
-        help="Temporal units for NIfTI header (default: sec).",
-    )
-    parser.add_argument(
-        "--header",
-        help="Path to a YAML file containing NIfTI header overrides.",
-    )
 
-    parser.add_argument(
+    output.add_argument(
         "-o",
         "--output",
         help=output_help,
     )
-    parser.add_argument(
+    output.add_argument(
         "--prefix",
         help="Filename prefix (supports {Key} tags from layout info).",
     )
-    parser.add_argument(
-        "--sidecar",
-        action="store_true",
-        help="Write a JSON sidecar using metadata rules.",
+    output.add_argument(
+        "--no-compress",
+        dest="compress",
+        action="store_false",
+        help="Write .nii instead of .nii.gz (default: compressed).",
     )
-    parser.add_argument(
-        "--no-convert",
-        action="store_true",
-        help="Skip NIfTI conversion and only write sidecar metadata (requires --sidecar).",
-    )
-    parser.add_argument(
+    output.add_argument(
+        "-M",
         "--context-map",
         dest="context_map",
         help="Context map YAML for metadata and output mapping.",
     )
-    parser.add_argument(
+
+    metadata.add_argument(
+        "-c",
+        "--sidecar",
+        action="store_true",
+        help="Write a JSON sidecar using metadata rules.",
+    )
+    metadata.add_argument(
+        "--no-convert",
+        action="store_true",
+        help="Skip NIfTI conversion and only write sidecar metadata (requires --sidecar).",
+    )
+
+    orientation.add_argument(
+        "-S",
+        "--space",
+        choices=list(get_args(AffineSpace)),
+        help="Affine space for conversion (default: subject_ras).",
+    )
+    orientation.add_argument(
+        "-T",
+        "--override-subject-type",
+        choices=list(get_args(SubjectType)),
+        help="Override subject type for subject-view affines (space=subject_ras).",
+    )
+    orientation.add_argument(
+        "-P",
+        "--override-subject-pose",
+        choices=list(get_args(SubjectPose)),
+        help="Override subject pose for subject-view affines (space=subject_ras).",
+    )
+
+    data.add_argument(
+        "-F",
+        "--flatten-fg",
+        action="store_true",
+        help="Flatten frame-group dimensions to 4D when data is 5D or higher.",
+    )
+    data.add_argument(
+        "-I",
+        "--cycle-index",
+        type=int,
+        help="Start cycle index (last axis). When set, read only a subset of cycles.",
+    )
+    data.add_argument(
+        "-N",
+        "--cycle-count",
+        type=int,
+        help="Number of cycles to read starting at --cycle-index. When omitted, reads to the end.",
+    )
+
+    hooks.add_argument(
+        "-H",
         "--hook-arg",
         action="append",
         default=[],
         help="Hook argument in HOOK:KEY=VALUE format (repeatable).",
     )
-    parser.add_argument(
+    hooks.add_argument(
         "--hook-args-yaml",
         action="append",
         default=[],
         help="YAML file containing hook args mapping (repeatable).",
     )
-    parser.add_argument(
-        "--space",
-        choices=list(get_args(AffineSpace)),
-        help="Affine space for conversion (default: subject_ras).",
+
+    header.add_argument(
+        "--xyz-units",
+        choices=list(get_args(XYZUNIT)),
+        default="mm",
+        help="Spatial units for NIfTI header (default: mm).",
     )
-    parser.add_argument(
-        "--override-subject-type",
-        choices=list(get_args(SubjectType)),
-        help="Override subject type for subject-view affines (space=subject_ras).",
+    header.add_argument(
+        "--t-units",
+        choices=list(get_args(TUNIT)),
+        default="sec",
+        help="Temporal units for NIfTI header (default: sec).",
     )
-    parser.add_argument(
-        "--override-subject-pose",
-        choices=list(get_args(SubjectPose)),
-        help="Override subject pose for subject-view affines (space=subject_ras).",
-    )
-    parser.add_argument(
-        "--flatten-fg",
-        action="store_true",
-        help="Flatten frame-group dimensions to 4D when data is 5D or higher.",
-    )
-    parser.add_argument(
-        "--cycle-index",
-        type=int,
-        help="Start cycle index (last axis). When set, read only a subset of cycles.",
-    )
-    parser.add_argument(
-        "--cycle-count",
-        type=int,
-        help="Number of cycles to read starting at --cycle-index. When omitted, reads to the end.",
-    )
-    parser.add_argument(
-        "--no-compress",
-        dest="compress",
-        action="store_false",
-        help="Write .nii instead of .nii.gz (default: compressed).",
+    header.add_argument(
+        "--header",
+        help="Path to a YAML file containing NIfTI header overrides.",
     )
 
 
