@@ -9,7 +9,7 @@ files are missing.
 from __future__ import annotations
 
 
-from typing import TYPE_CHECKING, Optional, Sequence, TypedDict, List, Tuple
+from typing import TYPE_CHECKING, Optional, Sequence, TypedDict, List, Tuple, Union
 import logging
 from .datatype import resolve as datatype_resolver
 from .shape import resolve as shape_resolver
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 
 class ResolvedImage(TypedDict):
     dataobj: Optional[np.ndarray]
-    slope: float
-    offset: float
+    slope: Union[float, Sequence[float], np.ndarray]
+    offset: Union[float, Sequence[float], np.ndarray]
     shape_desc: Optional[List[str]]
     sliceorder_scheme: Optional[str]
     num_cycles: int
