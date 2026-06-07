@@ -12,7 +12,8 @@ from typing import (
     Any, 
     Mapping, 
     List, 
-    Dict
+    Dict,
+    Sequence,
 )
 from pathlib import Path
 from warnings import warn
@@ -40,6 +41,7 @@ from .types import (
     GetAffineType
 )
 if TYPE_CHECKING:
+    from ...resolver.image import ResolvedImage
     from ...resolver.nifti import Nifti1HeaderContents
     from .types import (
         SubjectType, 
@@ -98,6 +100,60 @@ def resolve_reco_id(
         )
         return None
     return reco_id
+
+
+def _normalize_pack_scaling(
+    value: Any,
+    pack_sizes: Sequence[int],
+    *,
+    name: str,
+    default: float,
+) -> List[np.ndarray]:
+    """Normalize scalar, per-pack, or per-slice scaling values into pack vectors."""
+    if not pack_sizes:
+        raise ValueError(f"{name} cannot be resolved without slice-pack sizes.")
+
+    if value is None:
+        raw = np.asarray([default], dtype=float)
+    elif isinstance(value, np.ndarray):
+        raw = np.asarray(value, dtype=float).reshape(-1)
+    elif isinstance(value, (list, tuple)):
+        raw = np.asarray(value, dtype=float).reshape(-1)
+    else:
+        raw = np.asarray([value], dtype=float)
+
+    if raw.size == 0:
+        raw = np.asarray([default], dtype=float)
+
+    normalized_pack_sizes = [int(size) for size in pack_sizes]
+    total_slices = int(sum(normalized_pack_sizes))
+    num_packs = len(normalized_pack_sizes)
+
+    if raw.size == 1:
+        scalar = float(raw[0])
+        return [
+            np.full(size, scalar, dtype=float)
+            for size in normalized_pack_sizes
+        ]
+
+    if raw.size == total_slices:
+        pack_values: List[np.ndarray] = []
+        offset = 0
+        for size in normalized_pack_sizes:
+            pack_values.append(np.asarray(raw[offset:offset + size], dtype=float))
+            offset += size
+        return pack_values
+
+    if raw.size == num_packs:
+        return [
+            np.full(size, float(raw[idx]), dtype=float)
+            for idx, size in enumerate(normalized_pack_sizes)
+        ]
+
+    raise ValueError(
+        f"{name} has {raw.size} values, expected 1 (global), "
+        f"{num_packs} (per-pack), or {total_slices} (per-slice)."
+    )
 
 
 def resolve_data_and_affine(
@@ -614,12 +670,40 @@ def get_nifti1image(
     if dataobjs is None or affines is None:
         return None
 
+    affine_info = self.affine_info.get(reco_id)
+    if affine_info is not None:
+        pack_sizes = [int(size) for size in affine_info["num_slices"]]
+    else:
+        pack_sizes = [int(dataobj.shape[2]) if dataobj.ndim >= 3 else 1 for dataobj in dataobjs]
+    if len(pack_sizes) != len(dataobjs):
+        raise ValueError(
+            f"Slice-pack metadata mismatch: {len(pack_sizes)} pack sizes for {len(dataobjs)} data objects."
+        )
+
+    raw_slope = image_info.get("slope")
+    raw_offset = image_info.get("offset")
+    slope_packs = _normalize_pack_scaling(
+        raw_slope,
+        pack_sizes,
+        name="VisuCoreDataSlope",
+        default=1.0,
+    )
+    offset_packs = _normalize_pack_scaling(
+        raw_offset,
+        pack_sizes,
+        name="VisuCoreDataOffs",
+        default=0.0,
+    )
     niiobjs = []
     for i, dataobj in enumerate(dataobjs):
         affine = affines[i]
         niiobj = Nifti1Image(dataobj, affine)
+        output_image_info = cast("ResolvedImage", dict(image_info))
+        output_image_info["dataobj"] = dataobj
+        output_image_info["slope"] = slope_packs[i]
+        output_image_info["offset"] = offset_packs[i]
         nifti1header_contents = nifti_resolver.resolve(
-            image_info, xyz_units=xyz_units, t_units=t_units
+            output_image_info, xyz_units=xyz_units, t_units=t_units
         )
         if override_header:
             for key, value in override_header.items():
