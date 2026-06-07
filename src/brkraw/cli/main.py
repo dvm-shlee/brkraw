@@ -5,13 +5,41 @@ import os
 import shutil
 import subprocess
 import argparse
-from typing import Callable, List, Optional
+import sys
+from typing import Callable, Dict, List, Optional, Tuple
 from ..core.entrypoints import list_entry_points as _iter_entry_points
 
 from brkraw import __version__
 from brkraw.core import config as config_core
 
 PLUGIN_GROUP = "brkraw.cli"
+HELP_CATEGORY_ORDER = ("Data", "Workspace", "Extensions")
+HELP_COMMAND_ORDER = {
+    "info": 0,
+    "params": 1,
+    "convert": 2,
+    "convert-batch": 3,
+    "prune": 4,
+    "init": 5,
+    "config": 6,
+    "cache": 7,
+    "session": 8,
+    "addon": 9,
+    "hook": 10,
+}
+HELP_CATEGORY_BY_COMMAND = {
+    "info": "Data",
+    "params": "Data",
+    "convert": "Data",
+    "convert-batch": "Data",
+    "prune": "Data",
+    "init": "Workspace",
+    "config": "Workspace",
+    "cache": "Workspace",
+    "session": "Workspace",
+    "addon": "Extensions",
+    "hook": "Extensions",
+}
 
 
 def _run_capture(cmd: list[str]) -> str:
@@ -98,6 +126,71 @@ def _register_entry_point_commands(
         subparsers._choices_actions = ordered_actions  # type: ignore[attr-defined]
 
 
+def _help_category_for_command(name: str, parser: argparse.ArgumentParser) -> str:
+    category = getattr(parser, "_brkraw_help_category", None)
+    if isinstance(category, str) and category.strip():
+        return category.strip()
+
+    category = getattr(parser, "help_category", None)
+    if isinstance(category, str) and category.strip():
+        return category.strip()
+
+    return HELP_CATEGORY_BY_COMMAND.get(name, "Extensions")
+
+
+def _help_order_for_command(name: str) -> Tuple[int, str]:
+    return (HELP_COMMAND_ORDER.get(name, 999), name)
+
+
+def _render_help(
+    parser: argparse.ArgumentParser,
+    subparsers: argparse._SubParsersAction,  # type: ignore[name-defined]
+) -> str:
+    formatter = parser._get_formatter()
+    formatter.add_usage(parser.usage, parser._actions, parser._mutually_exclusive_groups)
+    if parser.description is not None:
+        formatter.add_text(parser.description)
+
+    option_groups = [group for group in parser._action_groups if group.title == "options"]
+    for group in option_groups:
+        formatter.start_section(group.title)
+        if group.description is not None:
+            formatter.add_text(group.description)
+        formatter.add_arguments(
+            action
+            for action in group._group_actions
+            if action is not subparsers
+        )
+        formatter.end_section()
+
+    actions_by_name = {action.dest: action for action in getattr(subparsers, "_choices_actions", [])}
+    grouped: Dict[str, List[argparse.Action]] = {}
+    for name, action in actions_by_name.items():
+        command_parser = subparsers.choices.get(name)
+        if command_parser is None:
+            continue
+        category = _help_category_for_command(name, command_parser)
+        grouped.setdefault(category, []).append(action)
+
+    categories = [category for category in HELP_CATEGORY_ORDER if category in grouped]
+    categories.extend(sorted(category for category in grouped if category not in HELP_CATEGORY_ORDER))
+
+    for category in categories:
+        formatter.start_section(category)
+        formatter.add_arguments(sorted(grouped[category], key=lambda action: _help_order_for_command(action.dest)))
+        formatter.end_section()
+
+    formatter.add_text(parser.epilog)
+    return formatter.format_help()
+
+
+def _print_help(
+    parser: argparse.ArgumentParser,
+    subparsers: argparse._SubParsersAction,  # type: ignore[name-defined]
+) -> None:
+    print(_render_help(parser, subparsers), end="")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     config_core.configure_logging()
     parser = argparse.ArgumentParser(
@@ -120,10 +213,18 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     _register_entry_point_commands(subparsers)
     _pv_autoset_env()
-    
-    args = parser.parse_args(argv)
+
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    if not argv_list:
+        _print_help(parser, subparsers)
+        return 2
+    if argv_list[0] in {"-h", "--help"}:
+        _print_help(parser, subparsers)
+        return 0
+
+    args = parser.parse_args(argv_list)
     if not hasattr(args, "func"):
-        parser.print_help()
+        _print_help(parser, subparsers)
         return 2
     func: Callable[[argparse.Namespace], int] = args.func
     return func(args)
