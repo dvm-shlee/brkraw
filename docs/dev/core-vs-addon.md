@@ -6,6 +6,8 @@ BrkRaw development follows two clearly separated paths:
   Paravision layouts, file structures, and metadata conventions.
 - **Addons and plugins**: implement rules, specs, transforms, context_map
   definitions, or custom CLI tooling without modifying core code.
+- **Viewer application**: implements shared visualization and hosts optional
+  modality-specific visualization panels in `brkraw-viewer`.
 
 This separation is intentional and helps keep the core stable while allowing
 rapid experimentation and customization through extensions.
