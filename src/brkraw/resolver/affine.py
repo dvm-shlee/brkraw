@@ -285,7 +285,7 @@ def wrap_to_subject_ras(affine: np.ndarray,
         # step2. RSP+ to RAS+
         _affine = rotate_affine(_affine, rad_x=np.pi/2)
         if gravity == "Supine":
-            _affine = rotate_affine(_affine, rad_z=np.pi)
+            _affine = rotate_affine(_affine, rad_y=np.pi)
         elif gravity == "Left":
             _affine = rotate_affine(_affine, rad_z=-np.pi/2)
         elif gravity == "Right":
