@@ -24,3 +24,8 @@ site/
 *.lock
 .tmp
 .omx/
+
+# Local AI agent guidance (not version controlled)
+AGENTS.md
+CLAUDE.md
+.agent/
