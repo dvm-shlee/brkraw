@@ -6,6 +6,5 @@ def test_schema_resources_loadable() -> None:
 
     assert isinstance(meta_validator._load_schema(), dict)
     assert isinstance(remapper_validator._load_schema(), dict)
-    assert isinstance(remapper_validator._load_map_schema(), dict)
     assert isinstance(pruner_validator._load_schema(None), dict)
     assert isinstance(rules_validator._load_schema(), dict)

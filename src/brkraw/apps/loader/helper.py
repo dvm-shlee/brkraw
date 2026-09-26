@@ -25,7 +25,7 @@ from nibabel.nifti1 import Nifti1Image
 
 from ...core.config import resolve_root
 from ...core.parameters import Parameters
-from ...specs.remapper import load_spec, map_parameters, load_context_map, apply_context_map
+from ...specs.remapper import load_spec, map_parameters
 from ...specs.rules import load_rules, select_rule_use
 from ...dataclasses import Reco, Scan, Study
 from ...specs import hook as converter_core
@@ -432,6 +432,8 @@ def _finalize_affines(
 def get_dataobj(
     self: "ScanLoader",
     reco_id: Optional[int] = None,
+    axis: Optional[Union[str, int]] = None,
+    frames: Optional[Union[int, List[int], str]] = None,
     **kwargs: Dict[str, Any]
 ) -> Dataobjs:
     """Return reconstructed data for a reco, split by slice pack if needed.
@@ -439,9 +441,14 @@ def get_dataobj(
     Args:
         self: Scan or ScanLoader instance.
         reco_id: Reco identifier to read (defaults to the first available).
-        cycle_index: Optional cycle start index (last axis), reads all cycles when None.
-        cycle_count: Optional number of cycles to read from cycle_index; reads to end when None.
-            Ignored when the dataset reports <= 1 total cycle.
+        axis: Frame axis for ``frames``: a lowercase name from the scan's frame
+            groups (``echo``, ``cycle`` ...; see "Frame axes" in ``brkraw info``)
+            or a data-axis number >= 3. Omitted: the scan's only frame axis.
+        frames: Frames to keep, numpy rules: an int picks one frame and removes
+            the axis, a list keeps the axis in that order, ``"start:stop[:step]"``
+            is a Python slice. Applied to each slice pack.
+        cycle_index, cycle_count: Legacy (0.5) cycle block read on the last axis;
+            deprecated, removed in 0.7.0 (use ``axis="cycle", frames="a:b"``).
 
     Returns:
         Single ndarray when one slice pack exists; otherwise a tuple of arrays.
@@ -449,6 +456,18 @@ def get_dataobj(
     """
     cycle_index = cast(Optional[int], kwargs.get('cycle_index'))
     cycle_count = cast(Optional[int], kwargs.get('cycle_count'))
+    if cycle_index is not None or cycle_count is not None:
+        if axis is not None or frames is not None:
+            raise ValueError("Use axis/frames or the legacy cycle_index/cycle_count, not both.")
+        start = 0 if cycle_index is None else int(cycle_index)
+        stop = "" if cycle_count is None else str(start + int(cycle_count))
+        message = (
+            "cycle_index/cycle_count are deprecated and will be removed in brkraw 0.7.0; "
+            f'use axis="cycle", frames="{start}:{stop}"'
+        )
+        warn(message, DeprecationWarning, stacklevel=2)
+    if axis is not None and frames is None:
+        raise ValueError("axis needs frames (which frames of that axis to keep).")
     resolved_reco_id = resolve_reco_id(self, reco_id)
     if resolved_reco_id is None:
         return None
@@ -499,6 +518,19 @@ def get_dataobj(
         _dataobj = cast(NDArray, dataobj)[:, :, slice(slice_offset, slice_offset + _num_slices)]
         slice_offset += _num_slices
         slice_pack.append(_dataobj)
+
+    if frames is not None:
+        # Slice packs first, then the frame selection inside each pack (BRK-0024).
+        from ...specs.context_map.output import select_frames
+
+        shape_desc = cast(dict, image_info).get("shape_desc") or []
+        selected = []
+        for pack in slice_pack:
+            part, notes = select_frames(pack, shape_desc, axis, frames)
+            for note in notes:
+                logger.warning("scan %s: %s", getattr(self, "scan_id", "?"), note)
+            selected.append(part)
+        slice_pack = selected
 
     if len(slice_pack) == 1:
         return slice_pack[0]
@@ -1008,16 +1040,17 @@ def get_metadata(
     self,
     reco_id: Optional[int] = None,
     spec: Optional[Union[Mapping[str, Any], str, Path]] = None,
-    context_map: Optional[Union[str, Path]] = None,
     return_spec: bool = False,
 ) -> Metadata:
     """Resolve metadata using a remapper spec.
 
+    A context map's ``sidecar`` fields are applied by the caller with
+    ``brkraw.specs.context_map.plan_scan`` (0.6.0: no ``context_map`` argument).
+
     Args:
         self: Scan instance.
-    reco_id: Reco identifier (defaults to the first available).
+        reco_id: Reco identifier (defaults to the first available).
         spec: Optional spec mapping or spec file path.
-    context_map: Optional context map override.
         return_spec: If True, return spec info alongside metadata.
 
     Returns:
@@ -1042,17 +1075,8 @@ def get_metadata(
         spec_data,
         transforms,
         validate=False,
-        context_map=None,
         context={"scan_id": getattr(scan, "scan_id", None), "reco_id": resolved_reco_id},
     )
-    if context_map:
-        map_data = load_context_map(context_map)
-        metadata = apply_context_map(
-            metadata,
-            map_data,
-            target="metadata_spec",
-            context={"scan_id": getattr(scan, "scan_id", None), "reco_id": resolved_reco_id},
-        )
     if not return_spec:
         return metadata
     meta = spec_data.get("__meta__")

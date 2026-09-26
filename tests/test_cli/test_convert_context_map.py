@@ -116,7 +116,8 @@ def test_explicit_map_and_no_context_map(study, tmp_path):
     plain = tmp_path / "b"
     assert main(["convert", str(study), "-o", str(plain), "--no-context-map"]) == 0
     names = _niis(plain)
-    assert len(names) == 4 and not any(p.startswith("sub-") for p in names)
+    # config layout: flat file names, no map folders
+    assert len(names) == 4 and not any("/" in p for p in names)
 
 
 def test_collision_is_an_error_by_default_and_nothing_is_written(study, tmp_path, caplog):
@@ -274,7 +275,8 @@ def test_same_name_map_on_approved_zips(pv, approved_zips, tmp_path):
     for src in approved_zips(pv):
         _map(src, {"__meta__": {"category": "context_map",
                                 "layout_template": "{x.sub}/scan-{x.scan}[_sp{utils.slicepack}][_reco-{x.reco}]"},
-                   "x": {"sub": {"from": "Subject.ID"}, "scan": {"from": "ScanID"}, "reco": {"from": "RecoID"}}})
+                   "x": {"sub": {"from": "Subject.ID"}, "scan": {"from": "ScanID"}, "reco": {"from": "RecoID"}}},
+             name=f"{src.stem}.yaml")  # a zip's same-name map drops ".zip"
         out = tmp_path / f"out-{src.stem}"
         loader = brkraw.load(str(src))
         assert main(["convert", str(src), "-o", str(out)]) == 0

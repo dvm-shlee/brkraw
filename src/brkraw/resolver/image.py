@@ -72,6 +72,26 @@ def _validate_swapped_axes(
         raise ValueError(f"z-axis descriptor '{shape_desc[2]}' is invalid; expected one of {sorted(Z_AXIS_DESCRIPTORS)}")
 
 
+def normalized_layout(shape_info: "ResolvedShape") -> Tuple[List[int], List[str]]:
+    """(shape, shape_desc) after the same z-axis normalization as the data, without reading it.
+
+    Used to check a frame selection (axis names and sizes) before any data is
+    loaded. Index 0-2 are the spatial axes; frame axes follow.
+    """
+    shape = [int(s) for s in shape_info["shape"]]
+    shape_desc = list(shape_info["shape_desc"])
+    if len(shape) < 3 or len(shape_desc) < 3 or len(shape) != len(shape_desc):
+        return shape, shape_desc
+    if shape_desc[2] in Z_AXIS_DESCRIPTORS:
+        return shape, _normalize_zaxis_descriptor(shape_desc)
+    idx = _find_z_axis_candidate(shape_desc)
+    if idx is None:
+        return shape, shape_desc
+    shape = swap_element(shape, 2, idx)
+    shape_desc = swap_element(shape_desc, 2, idx)
+    return shape, _normalize_zaxis_descriptor(shape_desc)
+
+
 def ensure_3d_spatial_data(dataobj: np.ndarray, shape_info: "ResolvedShape") -> Tuple[np.ndarray, List[str]]:
     """
     Normalize data and descriptors so the spatial z-axis sits at index 2.
@@ -303,5 +323,6 @@ def resolve(
     return result
 
 __all__ = [
-    'resolve'
+    'resolve',
+    'normalized_layout',
 ]
