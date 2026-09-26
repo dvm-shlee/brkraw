@@ -17,6 +17,7 @@ import pytest
 from brkraw.apps.loader import helper as loader_helper
 from brkraw.resolver import affine as affine_mod
 from brkraw.resolver.affine import (
+    _apply_pose_step,
     _subject_ras_steps,
     unwrap_to_scanner_xyz,
     wrap_to_subject_ras,
@@ -168,11 +169,24 @@ def test_start_labels_follow_pose_words(subject_type, pose, start, walk) -> None
 
 @pytest.mark.parametrize("subject_type,pose,start,walk", POSE_TABLE, ids=IDS)
 def test_steps_and_labels_after_each_step(subject_type, pose, start, walk) -> None:
-    frame = labels_to_matrix(start)
+    """Run the real step executor, _apply_pose_step, one step at a time.
+
+    Each step must equal the independent test-side matrix (on an oblique affine
+    with a translation) and undo itself with ``inverse=True``. The labels after
+    each step come from the product of the steps the executor has applied so
+    far: start labels times the inverse of that product.
+    """
+    start_frame = labels_to_matrix(start)
+    applied = np.eye(4)                      # steps so far, applied by the code
+    affine = synthetic_affine(seed=17)
     got: List[Tuple[str, str]] = []
     for step in _subject_ras_steps(subject_type, pose):
-        frame = frame @ step_matrix(step.axis, step.degrees).T
-        got.append((step_text(step), matrix_to_labels(frame)))
+        stepped = _apply_pose_step(affine, step)
+        assert np.allclose(stepped, as4(step_matrix(step.axis, step.degrees)) @ affine, atol=1e-9)
+        assert np.allclose(_apply_pose_step(stepped, step, inverse=True), affine, atol=1e-9)
+        affine = stepped
+        applied = _apply_pose_step(applied, step)
+        got.append((step_text(step), matrix_to_labels(start_frame @ np.linalg.inv(applied[:3, :3]))))
     assert got == walk
     assert got[-1][1] == "RAS"
 
