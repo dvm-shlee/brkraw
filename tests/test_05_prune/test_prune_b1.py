@@ -99,12 +99,20 @@ def test_fix2_scan_rule_keeps_study_level_files(tmp_path):
 
 
 def test_fix2_reco_rule_applies_only_below_pdata(tmp_path):
+    import shutil
+
     study = _study(tmp_path)
+    # a competing reco folder at the same level as the chosen one
+    shutil.copytree(study / "3" / "pdata" / "1", study / "3" / "pdata" / "2")
     out = prune_dataset_to_zip(
         study, tmp_path / "o.zip", IMAGE_FILES, dirs=[{"level": 1, "dirs": ["3"]}, {"level": 3, "dirs": ["1"]}]
     )
     names = set(_rel(_entries(out)))
-    assert {"subject", "3/acqp", "3/method", "3/pdata/1/2dseq"} <= names
+    # files above level 3 (study and scan files) are kept by the file list alone
+    assert {"subject", "3/acqp", "3/method", "3/pdata/1/2dseq", "3/pdata/1/visu_pars"} <= names
+    # the level-3 rule drops the other reco and the level-1 rule drops the other scan
+    assert not any(n.startswith("3/pdata/2/") for n in names)
+    assert not any(n.startswith("1/") for n in names)
 
 
 # ---------------------------------------------------------------------------

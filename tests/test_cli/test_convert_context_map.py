@@ -30,9 +30,9 @@ BIDS_MAP = {
     "bids": {
         "sub": "01",
         "ses": "baseline",
-        "datatype": {"from": "Method", "map": {"Bruker:EPI": "func", "Bruker:RARE": "anat", "Bruker:FieldMap": "fmap"}},
-        "suffix": {"from": "Method", "map": {"Bruker:EPI": "bold", "Bruker:RARE": "T2w", "Bruker:FieldMap": "fieldmap"}},
-        "task": {"when": {"Method": "Bruker:EPI"}, "value": "rest"},
+        "datatype": {"from": "MethodName", "map": {"EPI": "func", "RARE": "anat", "FieldMap": "fmap"}},
+        "suffix": {"from": "MethodName", "map": {"EPI": "bold", "RARE": "T2w", "FieldMap": "fieldmap"}},
+        "task": {"when": {"MethodName": "EPI"}, "value": "rest"},
         "run": [{"when": {"ScanID": 5}, "value": 1}, {"when": {"ScanID": 6}, "value": 2}],
     },
     "split": {
@@ -127,7 +127,8 @@ def test_collision_is_an_error_by_default_and_nothing_is_written(study, tmp_path
     with caplog.at_level(logging.ERROR):
         assert main(["convert", str(study), "-o", str(out)]) == 2
     assert "scan 6" in caplog.text and "scan 5" in caplog.text
-    assert not out.exists() or _niis(out) == set()
+    # nothing at all: no NIfTI, no sidecar, no folder content
+    assert not out.exists() or not any(p.is_file() for p in out.rglob("*"))
 
 
 def test_collision_with_existing_files_and_suffix_mode(study, tmp_path, caplog):
@@ -168,6 +169,92 @@ def test_utils_values_in_the_template(study, tmp_path):
     out2 = tmp_path / "out2"
     assert main(["convert", str(study), "-o", str(out2)]) == 0
     assert _niis(out2) == {f"P01/img_{n}.nii.gz" for n in (1, 2, 3, 4)}
+
+
+def test_utils_slicepack_numbers_packs_before_split_parts(tmp_path):
+    # scan 4: two slice packs; scan 9: two slice packs x echo 2, split by echo
+    st = make_synthetic_study(tmp_path / "data" / "packs", pv="360.3.3", scans={4: "RARE", 9: "FieldMap"},
+                              frames={9: [("FG_ECHO", 2)]}, packs={4: 2, 9: 2})
+    _map(st, {
+        "__meta__": {"category": "context_map", "layout_template": "E{x.scan}[_sp{utils.slicepack}][_part{utils.split}]"},
+        "x": {"scan": {"from": "ScanID"}},
+        "split": {"when": {"ScanID": 9}, "value": [{"axis": "echo", "frames": 0}, {"axis": "echo", "frames": 1}]},
+    })
+    out = tmp_path / "out"
+    assert main(["convert", str(st), "-o", str(out)]) == 0
+    assert _niis(out) == {"E4_sp1.nii.gz", "E4_sp2.nii.gz", "E9_sp1_part1.nii.gz", "E9_sp1_part2.nii.gz",
+                          "E9_sp2_part1.nii.gz", "E9_sp2_part2.nii.gz"}
+    packs = brkraw.load(str(st)).get_dataobj(9, 1)
+    for sp in (1, 2):
+        for part in (1, 2):
+            got = _data(out / f"E9_sp{sp}_part{part}.nii.gz")
+            assert np.array_equal(got, np.asarray(packs[sp - 1])[..., part - 1])
+
+
+def test_existing_sidecar_is_a_collision_and_is_not_overwritten(study, tmp_path, caplog):
+    _map(study, BIDS_MAP)
+    out = tmp_path / "out"
+    assert main(["convert", str(study), "-o", str(out), "-c"]) == 0
+    side = out / P / "anat" / "sub-01_ses-baseline_T2w.json"
+    side.write_text('{"mine": 1}', encoding="utf-8")
+    for nii in out.rglob("*.nii.gz"):
+        nii.unlink()
+    with caplog.at_level(logging.ERROR):
+        assert main(["convert", str(study), "-o", str(out), "-c"]) == 2
+    assert "already exists" in caplog.text
+    assert side.read_text(encoding="utf-8") == '{"mine": 1}'
+    assert _niis(out) == set()
+
+
+def test_split_without_template_checks_one_axis_and_notes_missing_frames(tmp_path, caplog):
+    st = make_synthetic_study(tmp_path / "data" / "two", pv="360.3.3", scans={9: "FieldMap"},
+                              frames={9: [("FG_ECHO", 2), ("FG_CYCLE", 3)]})
+    mixed = {"__meta__": {"category": "context_map"},
+             "split": {"when": {"ScanID": 9}, "value": [{"axis": "echo", "frames": 0}, {"axis": "cycle", "frames": 0}]}}
+    _map(st, mixed)
+    out = tmp_path / "out"
+    with caplog.at_level(logging.ERROR):
+        assert main(["convert", str(st), "-o", str(out)]) == 2
+    assert "same axis" in caplog.text
+    assert not out.exists() or _niis(out) == set()
+    caplog.clear()
+    partial = {"__meta__": {"category": "context_map"},
+               "split": {"when": {"ScanID": 9}, "value": [{"axis": "cycle", "frames": 0}]}}
+    _map(st, partial)
+    with caplog.at_level(logging.INFO):
+        assert main(["convert", str(st), "-o", str(tmp_path / "out2")]) == 0
+    assert "in no part" in caplog.text
+
+
+def test_metadata_rules_do_not_depend_on_sidecar_option(study, tmp_path):
+    # AcquisitionDateTime is a sidecar (metadata) field, not scan info
+    data = {"__meta__": {"category": "context_map", "layout_template": "E{x.scan}"},
+            "x": {"scan": {"from": "ScanID"}},
+            "convert": [{"when": {"ScanID": 3, "AcquisitionDateTime": "2024-03-15T10:10:10,123-0400"},
+                         "value": False}]}
+    _map(study, data)
+    for extra in ([], ["-c"]):
+        out = tmp_path / ("out" + "".join(extra))
+        assert main(["convert", str(study), "-o", str(out)] + extra) == 0
+        assert _niis(out) == {"E5.nii.gz", "E6.nii.gz", "E8.nii.gz"}, extra
+    # the same rule without a layout_template (config layout path)
+    data["__meta__"] = {"category": "context_map"}
+    _map(study, data)
+    out = tmp_path / "plain"
+    assert main(["convert", str(study), "-o", str(out)]) == 0
+    assert len(_niis(out)) == 3 and not any("scan-3_" in p for p in _niis(out))
+
+
+def test_method_name_without_vendor_prefix(study):
+    from brkraw.apps.loader.info.transform import strip_method_prefix
+    from brkraw.core import layout as layout_core
+
+    info, _ = layout_core.load_layout_info_parts(brkraw.load(str(study)), 5, reco_id=1)
+    assert info["Method"] == "Bruker:EPI"
+    assert info["MethodName"] == "EPI"
+    assert strip_method_prefix("User:zte_mjm_anatomical") == "zte_mjm_anatomical"
+    assert strip_method_prefix("FLASH") == "FLASH"
+    assert strip_method_prefix("Unknown") == "Unknown"
 
 
 def test_bad_map_stops_with_a_clear_message(study, tmp_path, caplog):
@@ -279,8 +366,42 @@ def test_same_name_map_on_approved_zips(pv, approved_zips, tmp_path):
              name=f"{src.stem}.yaml")  # a zip's same-name map drops ".zip"
         out = tmp_path / f"out-{src.stem}"
         loader = brkraw.load(str(src))
-        assert main(["convert", str(src), "-o", str(out)]) == 0
+        assert main(["convert", str(src), "-o", str(out), "-c"]) == 0
         names = _niis(out)
         sub = str((brkraw.apps.loader.info.study(loader) or {}).get("Subject", {}).get("ID"))
         assert names and all(n.startswith(f"{sub}/scan-") for n in names)
-        assert {int(n.split("scan-")[1].split("_")[0].split(".")[0]) for n in names} <= set(loader.avail)
+        written = {int(n.split("scan-")[1].split("_")[0].split(".")[0]) for n in names}
+        # every scan is written, except the known scaling regression (test_per_frame_slope_scans_convert);
+        # when that is fixed, this fails until KNOWN_SLOPE_FAILURES is emptied
+        assert written == set(loader.avail) - KNOWN_SLOPE_FAILURES.get(src.name, set())
+        for n in names:
+            assert (out / (n[: -len(".nii.gz")] + ".json")).is_file()
+
+
+# ---------------------------------------------------------------------------
+# Scaling regression from 0.6.0a1 (2d93b67): one slope value per frame.
+# 0.5.7 converts these scans. Strict xfail until the Director picks the handling.
+# ---------------------------------------------------------------------------
+
+KNOWN_SLOPE_FAILURES = {"pv5.1-02.zip": {11}, "pv360-3.1-01.zip": {4}}
+
+
+@pytest.mark.xfail(strict=True, reason="per-frame VisuCoreDataSlope (0.6.0a1 regression, 2d93b67); handling pending")
+def test_per_frame_uniform_slope_converts(tmp_path):
+    st = make_synthetic_study(tmp_path / "data" / "slope", pv="360.3.3", scans={5: "EPI"},
+                              frames={5: [("FG_CYCLE", 3)]}, slopes={5: [2.0, 2.0, 2.0]})
+    out = tmp_path / "o.nii.gz"
+    assert main(["convert", str(st), "-s", "5", "-o", str(out), "--no-context-map"]) == 0
+    img = nib.load(str(out))
+    raw = np.asarray(brkraw.load(str(st)).get_dataobj(5, 1))
+    assert np.allclose(np.asarray(img.dataobj), raw * 2.0)
+
+
+@pytest.mark.agent_fixtures
+@pytest.mark.xfail(strict=True, reason="per-frame VisuCoreDataSlope (0.6.0a1 regression, 2d93b67); handling pending")
+@pytest.mark.parametrize("pv, name", [("pv5.1", "pv5.1-02.zip"), ("pv360-3.x", "pv360-3.1-01.zip")])
+def test_per_frame_slope_scans_convert(pv, name, approved_zips):
+    src = [p for p in approved_zips(pv) if p.name == name][0]
+    loader = brkraw.load(str(src))
+    for scan_id in KNOWN_SLOPE_FAILURES[name]:
+        assert loader.convert(scan_id, reco_id=1) is not None

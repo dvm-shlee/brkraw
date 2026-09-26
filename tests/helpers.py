@@ -89,6 +89,8 @@ def make_synthetic_study(
     pv: str = "6.0.1",
     scans: Optional[Dict[int, str]] = None,
     frames: Optional[Dict[int, List[Tuple[str, int]]]] = None,
+    packs: Optional[Dict[int, int]] = None,
+    slopes: Optional[Dict[int, List[float]]] = None,
 ) -> Path:
     """Write a small ParaVision-like study folder at ``root`` and return it.
 
@@ -104,7 +106,13 @@ def make_synthetic_study(
     ``{8: [("FG_ECHO", 2), ("FG_CYCLE", 3)]}``: the scan then has 2 x 3 frames
     and its 2dseq holds ``0, 1, 2, ...`` in ParaVision order, so the data is
     ``np.arange(16 * 6).reshape((4, 4, 1, 2, 3), order="F")``.
+
+    ``packs`` maps scan id -> number of slice packs (one slice each, an
+    ``FG_SLICE`` group in front of the frame groups). ``slopes`` maps scan id
+    -> the VisuCoreDataSlope values to write (VisuCoreDataOffs gets as many 0).
     """
+    packs = packs or {}
+    slopes = slopes or {}
     frames = frames or {}
     scans = scans or {1: "FLASH", 3: "RARE"}
     m = SYNTH_MARKERS
@@ -146,6 +154,9 @@ def make_synthetic_study(
         pdir = sdir / "pdata" / "1"
         pdir.mkdir(parents=True, exist_ok=True)
         groups = list(frames.get(sid, []))
+        n_packs = int(packs.get(sid, 1))
+        if n_packs > 1:
+            groups = [("FG_SLICE", n_packs)] + groups
         n_frames = 1
         for _, size in groups:
             n_frames *= int(size)
@@ -168,11 +179,11 @@ def make_synthetic_study(
             ("PVM_EchoTime", "10"),
             ("PVM_RepetitionTime", "2000"),
             ("PVM_Matrix", "( 2 )\n4 4"),
-            ("PVM_NSPacks", "1"),
-            ("PVM_SPackArrNSlices", "( 1 )\n1"),
-            ("PVM_SPackArrSliceOrient", "( 1 )\naxial"),
-            ("PVM_SPackArrSliceDistance", "( 1 )\n1"),
-            ("PVM_SPackArrSliceGap", "( 1 )\n0"),
+            ("PVM_NSPacks", str(n_packs)),
+            ("PVM_SPackArrNSlices", f"( {n_packs} )\n" + " ".join(["1"] * n_packs)),
+            ("PVM_SPackArrSliceOrient", f"( {n_packs} )\n" + " ".join(["axial"] * n_packs)),
+            ("PVM_SPackArrSliceDistance", f"( {n_packs} )\n" + " ".join(["1"] * n_packs)),
+            ("PVM_SPackArrSliceGap", f"( {n_packs} )\n" + " ".join(["0"] * n_packs)),
             ("PVM_SliceThick", "1"),
         ]
         visu = [
@@ -207,6 +218,12 @@ def make_synthetic_study(
             ("VisuAcqProtocol", _s(f"{method}_proto")),
             ("VisuExperimentNumber", str(sid)),
         ]
+        if sid in slopes:
+            vals = [float(v) for v in slopes[sid]]
+            visu += [
+                ("VisuCoreDataSlope", f"( {len(vals)} )\n" + " ".join(repr(v) for v in vals)),
+                ("VisuCoreDataOffs", f"( {len(vals)} )\n" + " ".join(["0"] * len(vals))),
+            ]
         if groups:
             desc = " ".join(f"({size}, <{name}>, <>, 0, 0)" for name, size in groups)
             visu += [
