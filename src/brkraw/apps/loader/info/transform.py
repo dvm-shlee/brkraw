@@ -17,15 +17,21 @@ def strip_jcamp_string(value: Optional[str]) -> str:
     return " ".join(text.split())
 
 
-def unixtime_to_datetime(value: Union[int, float, Tuple[Union[int, float], ...]]) -> datetime:
+def unixtime_to_datetime(
+    value: Optional[Union[int, float, Tuple[Union[int, float], ...]]]
+) -> Optional[datetime]:
     """Convert unix time value to timezone-aware datetime.
 
     Accepts:
       - int/float: epoch seconds (local timezone)
       - tuple: (sec,), (sec, ms), or (sec, ms, offset_min)
+      - None (the field is missing, for example removed by an anonymizing
+        pruner spec): returns None, so study info still loads.
 
     If offset_min is missing, local timezone is used.
     """
+    if value is None:
+        return None
     local_tz = datetime.now().astimezone().tzinfo
 
     if isinstance(value, (int, float)):
