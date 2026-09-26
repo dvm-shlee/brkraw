@@ -88,17 +88,24 @@ def make_synthetic_study(
     *,
     pv: str = "6.0.1",
     scans: Optional[Dict[int, str]] = None,
+    frames: Optional[Dict[int, List[Tuple[str, int]]]] = None,
 ) -> Path:
     """Write a small ParaVision-like study folder at ``root`` and return it.
 
     ``scans`` maps scan id -> method name (default ``{1: "FLASH", 3: "RARE"}``).
     Each scan has acqp, method, fid, AdjStatePerScan and pdata/1 with
-    visu_pars, reco, procs and a 4x4 int16 2dseq. Study files: subject,
-    AdjStatePerStudy, ScanProgram.scanProgram. Values carry SYNTH_MARKERS,
-    JCAMP files carry ``##OWNER`` and ``$$`` comment lines with a source path.
-    The images have no real geometry: use them for loading, info and file
-    handling, not for checking conversion output.
+    visu_pars, reco, procs and a 4x4 int16 2dseq (one slice). Study files:
+    subject, AdjStatePerStudy, ScanProgram.scanProgram. Values carry
+    SYNTH_MARKERS, JCAMP files carry ``##OWNER`` and ``$$`` comment lines with
+    a source path. A minimal identity geometry is written, so brkraw can
+    convert the scans (the orientation is not meant to be checked).
+
+    ``frames`` maps scan id -> frame groups, for example
+    ``{8: [("FG_ECHO", 2), ("FG_CYCLE", 3)]}``: the scan then has 2 x 3 frames
+    and its 2dseq holds ``0, 1, 2, ...`` in ParaVision order, so the data is
+    ``np.arange(16 * 6).reshape((4, 4, 1, 2, 3), order="F")``.
     """
+    frames = frames or {}
     scans = scans or {1: "FLASH", 3: "RARE"}
     m = SYNTH_MARKERS
     iso = not pv.startswith("5")
@@ -138,6 +145,10 @@ def make_synthetic_study(
         sdir = root / str(sid)
         pdir = sdir / "pdata" / "1"
         pdir.mkdir(parents=True, exist_ok=True)
+        groups = list(frames.get(sid, []))
+        n_frames = 1
+        for _, size in groups:
+            n_frames *= int(size)
         acqp = [
             ("ACQ_method", _s(f"Bruker:{method}")),
             ("ACQ_protocol_name", _s(f"{method}_proto")),
@@ -157,11 +168,23 @@ def make_synthetic_study(
             ("PVM_EchoTime", "10"),
             ("PVM_RepetitionTime", "2000"),
             ("PVM_Matrix", "( 2 )\n4 4"),
+            ("PVM_NSPacks", "1"),
+            ("PVM_SPackArrNSlices", "( 1 )\n1"),
+            ("PVM_SPackArrSliceOrient", "( 1 )\naxial"),
+            ("PVM_SPackArrSliceDistance", "( 1 )\n1"),
+            ("PVM_SPackArrSliceGap", "( 1 )\n0"),
+            ("PVM_SliceThick", "1"),
         ]
         visu = [
             ("VisuCoreDim", "2"),
             ("VisuCoreSize", "( 2 )\n4 4"),
-            ("VisuCoreFrameCount", "1"),
+            ("VisuCoreDimDesc", "( 2 )\nspatial spatial"),
+            ("VisuCoreFrameCount", str(n_frames)),
+            ("VisuCoreFrameType", f"( {n_frames} )\n" + " ".join(["MAGNITUDE_IMAGE"] * n_frames)),
+            ("VisuCoreOrientation", f"( {n_frames}, 9 )\n" + " ".join(["1 0 0 0 1 0 0 0 1"] * n_frames)),
+            ("VisuCorePosition", f"( {n_frames}, 3 )\n" + " ".join(["0 0 0"] * n_frames)),
+            ("VisuSubjectType", "Quadruped"),
+            ("VisuSubjectPosition", "Head_Supine"),
             ("VisuCoreWordType", "_16BIT_SGN_INT"),
             ("VisuCoreByteOrder", "littleEndian"),
             ("VisuCoreExtent", "( 2 )\n20 20"),
@@ -184,6 +207,12 @@ def make_synthetic_study(
             ("VisuAcqProtocol", _s(f"{method}_proto")),
             ("VisuExperimentNumber", str(sid)),
         ]
+        if groups:
+            desc = " ".join(f"({size}, <{name}>, <>, 0, 0)" for name, size in groups)
+            visu += [
+                ("VisuFGOrderDescDim", str(len(groups))),
+                ("VisuFGOrderDesc", f"( {len(groups)} )\n{desc}"),
+            ]
         reco = [
             ("RECO_size", "( 2 )\n4 4"),
             ("RECO_time", _s(date_txt)),
@@ -205,7 +234,8 @@ def make_synthetic_study(
             _jcamp(title, m["owner"], f"{base}/{sid}/pdata/1/procs", [("PROC_x", _s(m["owner"]))]),
             encoding="utf-8",
         )
-        (pdir / "2dseq").write_bytes(struct.pack("<16h", *range(16)))
+        count = 16 * n_frames
+        (pdir / "2dseq").write_bytes(struct.pack(f"<{count}h", *range(count)))
     return root
 
 
