@@ -304,7 +304,7 @@ def test_help_explains_the_default(capsys):
     with pytest.raises(SystemExit):
         main(["prune", "-h"])
     out = capsys.readouterr().out
-    assert "Nothing is anonymized" in out
+    assert "Nothing is anonymized" in " ".join(out.split())
     for option in ("--files", "--exclude-files", "--institution", "--anonymize", "--dry-run", "--overwrite"):
         assert option in out
 
