@@ -22,6 +22,8 @@ site/
 .envrc
 .idea/
 *.lock
+# uv lock file is tracked so `uv sync --locked` is reproducible
+!uv.lock
 .tmp
 .omx/
 

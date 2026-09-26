@@ -24,7 +24,20 @@ Discussion proposal → Issue(s) → Pull request
 We track a shared `.vscode/` directory to provide consistent tasks and settings
 across contributors.
 
-1) Create a virtual environment and install development dependencies:
+1) Create a virtual environment and install development dependencies.
+
+With [uv](https://docs.astral.sh/uv/) (recommended; uses the tracked
+`uv.lock` and `.python-version`):
+
+```bash
+uv sync --locked --extra dev
+uv run --locked --extra dev pytest
+```
+
+Keep `--extra dev` on `uv run` too; without it uv syncs the environment back
+to the runtime dependencies only and removes the development tools.
+
+Or with pip:
 
 ```bash
 python3 -m venv .venv
