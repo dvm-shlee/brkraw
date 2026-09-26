@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Union, Optional, Tuple, List, Any, cast
 from datetime import datetime, timezone, timedelta
+import logging
 import re
+
+logger = logging.getLogger("brkraw.info.transform")
 
 def strip_jcamp_string(value: Optional[str]) -> str:
     if value is None:
@@ -47,6 +50,11 @@ def stringtime_to_datetime(value: str) -> Union[datetime, str]:
       - 12:00:00 1 Jan 2026
       - 1 Jan 2026
       - 20260101
+
+    An empty value or ``"Unknown"`` (what ``strip_jcamp_string`` gives for a
+    missing field) returns ``"Unknown"``. A value in any other format logs a
+    warning and is returned as text, so one unreadable date (for example a
+    removed or replaced birth date) never stops study info.
     """
     _FORMATS = (
         "%Y-%m-%dT%H:%M:%S,%f%z",
@@ -54,16 +62,17 @@ def stringtime_to_datetime(value: str) -> Union[datetime, str]:
         "%d %b %Y",
         "%Y%m%d",
     )
-    
-    value = value.strip()
-    if len(value) == 0:
+
+    stripped = value.strip()
+    if not stripped or stripped == "Unknown":
         return "Unknown"
     for fmt in _FORMATS:
         try:
-            return datetime.strptime(value, fmt)
+            return datetime.strptime(stripped, fmt)
         except ValueError:
             continue
-    raise ValueError(f"Unsupported time format: {value!r}")
+    logger.warning("Unsupported time format: %r", stripped)
+    return stripped
 
 
 def merge_entry_and_position(entry: str, position: str):

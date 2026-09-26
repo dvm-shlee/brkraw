@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, Optional, Set, Union, Literal, Mapping, Dict, Any, List
+import os
 import re
 import shutil
+import tempfile
 import zipfile
 
 import yaml
@@ -24,6 +26,8 @@ def prune_dataset_to_zip(
     add_root: bool = True,
     root_name: Optional[str] = None,
     strip_jcamp_comments: bool = False,
+    jcamp_headers: Optional[Mapping[str, Any]] = None,
+    overwrite: bool = False,
 ) -> Path:
     """Create a pruned dataset ZIP with optional JCAMP parameter edits.
 
@@ -37,12 +41,16 @@ def prune_dataset_to_zip(
         add_root: Whether to include a top-level root directory in the zip.
         root_name: Override the root directory name when add_root is True.
         strip_jcamp_comments: When True, remove $$ comment lines from JCAMP files.
+        jcamp_headers: Mapping of {HEADER: value} applied to the ``##HEADER=``
+            lines of every kept JCAMP file (for example ``{"OWNER": "anon"}``).
+        overwrite: When False (default), an existing ``dest`` is never replaced.
 
     Returns:
         Path to the created zip file.
 
     Raises:
         ValueError: When the selector list is empty or no files remain after filtering.
+        FileExistsError: When ``dest`` exists and ``overwrite`` is False.
     """
     fs = DatasetFS.from_path(source)
     selectors = _normalize_selectors(files)
@@ -58,19 +66,39 @@ def prune_dataset_to_zip(
         raise ValueError(f"No files remain after applying {mode} list.")
 
     dest = Path(dest)
+    if dest.exists() and not overwrite:
+        raise FileExistsError(f"Output already exists: {dest} (use overwrite=True to replace it)")
     dest.parent.mkdir(parents=True, exist_ok=True)
     root = root_name or fs.anchor or fs.root.name
 
     arcnames = [_to_arcname(relpath, root, add_root=add_root) for relpath in selected_files]
     param_updates = _load_parameter_updates(update_params)
-    _write_zip(
-        fs,
-        dest,
-        selected_files,
-        arcnames,
-        param_updates=param_updates,
-        strip_jcamp_comments=strip_jcamp_comments,
+    headers = _load_jcamp_headers(jcamp_headers)
+
+    # Write to a temporary file beside dest and move it into place only when
+    # the whole zip is written, so a failure never leaves a half-written zip.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix="." + dest.name + ".", suffix=".tmp", dir=str(dest.parent)
     )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        _write_zip(
+            fs,
+            tmp_path,
+            selected_files,
+            arcnames,
+            param_updates=param_updates,
+            strip_jcamp_comments=strip_jcamp_comments,
+            jcamp_headers=headers,
+        )
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+    os.replace(tmp_path, dest)
     return dest
 
 
@@ -85,6 +113,7 @@ def prune_dataset_to_zip_from_spec(
     dirs: Optional[Iterable[Mapping[str, Any]]] = None,
     mode: Optional[Literal["keep", "drop"]] = None,
     template_vars: Optional[Mapping[str, str]] = None,
+    overwrite: bool = False,
 ) -> Path:
     """Create a pruned dataset ZIP from a prune spec mapping or YAML path.
 
@@ -98,6 +127,7 @@ def prune_dataset_to_zip_from_spec(
         dirs: Optional override for directory filter rules.
         mode: Optional override for keep/drop mode.
         template_vars: Optional mapping used to substitute `$key` placeholders.
+        overwrite: When False (default), an existing ``dest`` is never replaced.
 
     Returns:
         Path to the created zip file.
@@ -133,6 +163,8 @@ def prune_dataset_to_zip_from_spec(
             if strip_jcamp_comments is not None
             else bool(spec_data.get("strip_jcamp_comments", False))
         ),
+        jcamp_headers=spec_data.get("jcamp_headers"),
+        overwrite=overwrite,
     )
 
 
@@ -201,11 +233,13 @@ def _write_zip(
     *,
     param_updates: Optional[Mapping[str, Mapping[str, Optional[str]]]] = None,
     strip_jcamp_comments: bool = False,
+    jcamp_headers: Optional[Mapping[str, str]] = None,
 ) -> None:
     """Write selected files into a zip, applying JCAMP edits when requested."""
     entries = sorted(zip(files, arcnames), key=lambda item: item[1])
     parent_dirs = _collect_parent_dirs([arc for _, arc in entries])
     param_updates = param_updates or {}
+    headers = jcamp_headers or {}
 
     with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for d in parent_dirs:
@@ -215,20 +249,30 @@ def _write_zip(
             updates = param_updates.get(name)
             if updates:
                 content = fs.open_binary(relpath).read()
-                updated_text = _apply_jcamp_updates(content, updates, path_hint=relpath)
+                text = _apply_jcamp_updates(content, updates, path_hint=relpath)
+                text = _apply_jcamp_headers(text, headers)
                 if strip_jcamp_comments:
-                    updated_text = _strip_jcamp_comments(updated_text)
-                zf.writestr(arcname, updated_text.encode("utf-8"))
+                    text = _strip_jcamp_comments(text)
+                zf.writestr(arcname, text.encode("utf-8"))
                 continue
-            if strip_jcamp_comments:
-                content = fs.open_binary(relpath).read()
-                if Parameters._looks_like_jcamp(content):
-                    stripped = _strip_jcamp_comments(
-                        content.decode("utf-8", errors="ignore")
-                    )
-                    zf.writestr(arcname, stripped.encode("utf-8"))
-                    continue
-            with fs.open_binary(relpath) as src, zf.open(arcname, "w") as dst:
+            if headers or strip_jcamp_comments:
+                # Decide from the head only; binary files (fid, rawdata, 2dseq)
+                # are streamed and never read whole.
+                with fs.open_binary(relpath) as src:
+                    head = src.read(4096)
+                    if _looks_like_jcamp_head(head):
+                        rest = src.read()
+                        text = (head + rest).decode("utf-8", errors="ignore")
+                        text = _apply_jcamp_headers(text, headers)
+                        if strip_jcamp_comments:
+                            text = _strip_jcamp_comments(text)
+                        zf.writestr(arcname, text.encode("utf-8"))
+                    else:
+                        with zf.open(arcname, "w", force_zip64=True) as dst:
+                            dst.write(head)
+                            shutil.copyfileobj(src, dst)
+                continue
+            with fs.open_binary(relpath) as src, zf.open(arcname, "w", force_zip64=True) as dst:
                 shutil.copyfileobj(src, dst)
 
 
@@ -290,6 +334,59 @@ def _strip_jcamp_comments(text: str) -> str:
     return "".join(kept)
 
 
+def _load_jcamp_headers(headers: Optional[Mapping[str, Any]]) -> Dict[str, str]:
+    """Validate a {HEADER: value} mapping for JCAMP ``##HEADER=`` lines (for example OWNER)."""
+    if headers is None:
+        return {}
+    if not isinstance(headers, Mapping):
+        raise ValueError("jcamp_headers must be a mapping of header names to values.")
+    result: Dict[str, str] = {}
+    for key, value in headers.items():
+        name = str(key).strip()
+        if not name or name.startswith("$") or not re.fullmatch(r"[A-Za-z0-9_.]+", name):
+            raise ValueError(f"jcamp_headers: invalid header name {key!r}.")
+        if value is None or isinstance(value, (dict, list)):
+            raise ValueError(f"jcamp_headers[{name!r}] must be a text value.")
+        result[name] = str(value)
+    return result
+
+
+def _apply_jcamp_headers(text: str, headers: Mapping[str, str]) -> str:
+    """Replace the value of ``##NAME=`` header lines (not ``##$`` parameters)."""
+    if not headers:
+        return text
+    lines = text.splitlines(keepends=True)
+    for idx, line in enumerate(lines):
+        if not line.startswith("##") or line.startswith("##$"):
+            continue
+        name, sep, _ = line[2:].partition("=")
+        if sep and name in headers:
+            ending = line[len(line.rstrip("\r\n")):]
+            lines[idx] = f"##{name}={headers[name]}{ending}"
+    return "".join(lines)
+
+
+def _looks_like_jcamp_head(head: bytes) -> bool:
+    """Decide from the first bytes of a file whether it is a JCAMP-DX parameter file.
+
+    Strict on purpose: the first non-blank line must be a ``##NAME=`` header
+    and there must be no NUL byte, so binary data (fid, 2dseq, rawdata) is
+    never treated as text.
+    """
+    if b"\x00" in head:
+        return False
+    if head.startswith(b"\xef\xbb\xbf"):
+        head = head[3:]
+    head = head.lstrip(b" \t\r\n")
+    if not head.startswith(b"##"):
+        return False
+    first_newline = head.find(b"\n")
+    first_cr = head.find(b"\r")
+    ends = [i for i in (first_newline, first_cr) if i != -1]
+    first_line = head[: min(ends)] if ends else head
+    return b"=" in first_line
+
+
 def _normalize_dir_rules(
     rules: Optional[Iterable[Mapping[str, Any]]],
     mode: Literal["keep", "drop"],
@@ -320,7 +417,10 @@ def _is_excluded_by_dir_rules(relpath: str, rules: List[Dict[str, Any]]) -> bool
     parts = [p for p in relpath.split("/") if p]
     for rule in rules:
         level = rule["level"]
-        if level > len(parts):
+        # A rule for folder level L applies only to paths that have a folder at
+        # level L. Files above it (for example the study file `subject` when
+        # choosing scans at level 1) are decided by the file list alone.
+        if level >= len(parts):
             continue
         name = parts[level - 1]
         if rule["mode"] == "drop":

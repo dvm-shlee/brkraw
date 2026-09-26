@@ -255,13 +255,20 @@ def test_e_cli_refuses_existing_output_without_overwrite(tmp_path):
     assert zipfile.is_zipfile(out)
 
 
-def test_e_failed_write_leaves_no_output_or_temp_file(tmp_path):
+def test_e_failed_write_leaves_no_output_or_temp_file(tmp_path, monkeypatch):
+    from brkraw.specs.pruner import logic as pruner_logic
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated failure while writing")
+
+    # acqp is edited after other members were already written (members are sorted),
+    # so the zip is half-written when the failure happens
+    monkeypatch.setattr(pruner_logic, "_apply_jcamp_updates", boom)
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    with pytest.raises(ValueError):
-        # fid is not a parameter file, so editing it fails in the middle of writing
+    with pytest.raises(RuntimeError):
         prune_dataset_to_zip(_study(tmp_path), out_dir / "o.zip", IMAGE_FILES + ["fid"],
-                             update_params={"fid": {"X": "1"}})
+                             update_params={"visu_pars": {"VisuStation": "<x>"}})
     assert list(out_dir.iterdir()) == []
 
 

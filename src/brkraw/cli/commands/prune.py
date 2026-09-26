@@ -3,8 +3,9 @@ from __future__ import annotations
 """Create a pruned dataset zip using a prune spec."""
 
 import argparse
+import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +38,13 @@ def cmd_prune(args: argparse.Namespace) -> int:
         output = _default_output_path(Path(args.path), spec_path=spec_path)
     else:
         root_name_override = Path(output).stem
+    spec_summary = _load_prune_spec_summary(spec_path)
+    # None = neither flag given: the spec decides (fix 3).
+    strip_used = (
+        args.strip_jcamp_comments
+        if args.strip_jcamp_comments is not None
+        else bool(spec_summary.get("strip_jcamp_comments") or False)
+    )
     try:
         logger.info("Pruning dataset: %s", args.path)
         logger.info("Prune spec: %s", spec_path)
@@ -52,16 +60,22 @@ def cmd_prune(args: argparse.Namespace) -> int:
                 dirs=dirs_override,
                 mode=args.mode,
                 template_vars=template_vars,
+                overwrite=args.overwrite,
             )
         logger.info("Wrote pruned zip: %s", out_path)
-        _write_prune_sidecar(
+        write_prune_record(
             out_path=Path(out_path),
             input_path=Path(args.path),
             spec_path=spec_path,
-            args=args,
-            root_name_override=root_name_override,
-            dirs_override=dirs_override,
-            template_vars=template_vars,
+            settings={
+                "mode": args.mode,
+                "strip_jcamp_comments": strip_used,
+                "scan_ids": args.scan_ids,
+                "reco_ids": args.reco_ids,
+                "template_vars": template_vars,
+                "root_name_override": root_name_override,
+                "dirs_override": dirs_override,
+            },
         )
     except Exception as exc:
         logger.error("%s", exc)
@@ -104,10 +118,26 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         action="store_true",
         help="Skip prune spec validation.",
     )
-    prune_parser.add_argument(
+    comments_group = prune_parser.add_mutually_exclusive_group()
+    comments_group.add_argument(
         "--strip-jcamp-comments",
+        dest="strip_jcamp_comments",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Remove $$ comment lines from kept JCAMP files (default: the spec's setting).",
+    )
+    comments_group.add_argument(
+        "--keep-jcamp-comments",
+        dest="strip_jcamp_comments",
+        action="store_const",
+        const=False,
+        help="Keep $$ comment lines even if the spec removes them.",
+    )
+    prune_parser.add_argument(
+        "--overwrite",
         action="store_true",
-        help="Remove $$ comment lines from kept JCAMP files.",
+        help="Replace the output zip if it already exists.",
     )
     prune_parser.add_argument(
         "--mode",
@@ -168,35 +198,35 @@ def _load_root_name(spec_path: Path) -> Optional[str]:
     return None
 
 
-def _write_prune_sidecar(
+def write_prune_record(
     *,
     out_path: Path,
     input_path: Path,
     spec_path: Path,
-    args: argparse.Namespace,
-    root_name_override: Optional[str],
-    dirs_override: Optional[list],
-    template_vars: dict,
-) -> None:
-    sidecar = out_path.with_suffix(".prune.yaml")
-    spec_summary = _load_prune_spec_summary(spec_path)
-    payload = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+    settings: dict,
+    anonymize: bool = False,
+) -> Path:
+    """Write ``<output>.prune.yaml`` next to the zip (fix 4).
+
+    The record keeps names, never full paths: the input folder or file name
+    (left out entirely when anonymizing, because it usually holds the date and
+    subject), the output file name, and the spec file name with its SHA-256.
+    ``settings`` holds the options actually used.
+    """
+    record = out_path.with_suffix(".prune.yaml")
+    payload: dict = {
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "command": "brkraw prune",
-        "input_path": str(input_path),
-        "output_path": str(out_path),
-        "spec_path": str(spec_path),
-        "spec": spec_summary,
-        "mode": args.mode,
-        "strip_jcamp_comments": bool(args.strip_jcamp_comments),
-        "scan_ids": args.scan_ids,
-        "reco_ids": args.reco_ids,
-        "set_vars": args.set_vars,
-        "template_vars": template_vars,
-        "root_name_override": root_name_override,
-        "dirs_override": dirs_override,
     }
-    sidecar.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    if not anonymize:
+        payload["input_name"] = input_path.name
+    payload["output_name"] = out_path.name
+    payload["spec_name"] = spec_path.name
+    payload["spec_sha256"] = hashlib.sha256(spec_path.read_bytes()).hexdigest()
+    payload["spec"] = _load_prune_spec_summary(spec_path)
+    payload.update(settings)
+    record.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return record
 
 
 def _resolve_pruner_spec(value: Optional[str]) -> Path:
