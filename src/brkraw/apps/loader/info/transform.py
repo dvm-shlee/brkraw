@@ -17,6 +17,19 @@ def strip_jcamp_string(value: Optional[str]) -> str:
     return " ".join(text.split())
 
 
+def strip_method_prefix(value: Optional[str]) -> Optional[str]:
+    """Method name without the vendor prefix: ``Bruker:EPI`` -> ``EPI``, ``User:zte`` -> ``zte``.
+
+    Text without a colon is returned unchanged. ``Method`` keeps the original
+    value; this gives the separate ``MethodName`` item (BRK-0034 1).
+    """
+    if value is None:
+        return None
+    text = str(value)
+    head, sep, tail = text.partition(":")
+    return tail.strip() if sep and tail.strip() else text
+
+
 def unixtime_to_datetime(
     value: Optional[Union[int, float, Tuple[Union[int, float], ...]]]
 ) -> Optional[datetime]:

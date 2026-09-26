@@ -312,12 +312,12 @@ def _convert_one(args: argparse.Namespace) -> int:
             if map_data is not None:
                 try:
                     plan_info, _ = layout_core.load_layout_info_parts(loader, scan_id, reco_id=reco_id)
-                    meta_base = loader.get_metadata(scan_id, reco_id=reco_id) if args.sidecar else None
+                    meta_base = _metadata_for_rules(loader, scan_id, reco_id, strict=bool(args.sidecar))
                     plan = context_map_core.plan_scan(
-                        plan_info, map_data, scan_id=scan_id, reco_id=reco_id, metadata=meta_base or {}
+                        plan_info, map_data, scan_id=scan_id, reco_id=reco_id, metadata=meta_base
                     )
-                    if plan.split is not None:
-                        cm_output.validate_split_parts(plan.split, namespace_names)
+                    if plan.convert and plan.split is not None:
+                        _check_split(loader, scan_id, reco_id, plan.split, namespace_names)
                         jobs = [(k, part) for k, part in enumerate(plan.split, start=1)]
                 except context_map_core.ContextMapError as exc:
                     logger.error("Context map, scan %s reco %s: %s", scan_id, reco_id, exc)
@@ -553,6 +553,33 @@ def _frame_layout(loader: Any, scan_id: int, reco_id: Optional[int]) -> Tuple[Li
     return image_resolver.normalized_layout(shape_info)
 
 
+def _metadata_for_rules(loader: Any, scan_id: int, reco_id: Optional[int], *, strict: bool) -> Dict[str, Any]:
+    """Sidecar metadata for context map rules, read with or without -c.
+
+    ``convert``/``split``/``sidecar`` rules may read metadata fields, so the
+    result must not depend on -c. With -c a metadata error stops as before;
+    without it the error is logged and the rules see no metadata.
+    """
+    try:
+        return dict(loader.get_metadata(scan_id, reco_id=reco_id) or {})
+    except Exception as exc:
+        if strict:
+            raise
+        logger.warning("scan %s reco %s: metadata not available for context map rules: %s", scan_id, reco_id, exc)
+        return {}
+
+
+def _check_split(
+    loader: Any, scan_id: int, reco_id: Optional[int], parts: Any, namespace_names: Sequence[str]
+) -> None:
+    """Check split parts against the scan's frame layout before any data is read (both convert paths)."""
+    cm_output.validate_split_parts(parts, namespace_names)
+    shape, shape_desc = _frame_layout(loader, scan_id, reco_id)
+    _, notes = cm_output.plan_split(shape_desc, shape, parts)
+    for note in notes:
+        logger.info("scan %s reco %s: %s", scan_id, reco_id, note)
+
+
 def _pack_count(loader: Any, scan_id: int, reco_id: Optional[int]) -> int:
     """Number of slice packs of a reco (1 when unknown)."""
     scan = loader.get_scan(scan_id)
@@ -605,20 +632,16 @@ def _convert_with_map_template(
         for reco_id in reco_ids:
             try:
                 info, _ = layout_core.load_layout_info_parts(loader, scan_id, reco_id=reco_id)
-                meta_base = loader.get_metadata(scan_id, reco_id=reco_id) if args.sidecar else None
+                meta_base = _metadata_for_rules(loader, scan_id, reco_id, strict=bool(args.sidecar))
                 plan = context_map_core.plan_scan(
-                    info, map_data, scan_id=scan_id, reco_id=reco_id, metadata=meta_base or {}
+                    info, map_data, scan_id=scan_id, reco_id=reco_id, metadata=meta_base
                 )
                 if not plan.convert:
                     logger.info("Skipping scan %s reco %s (context map: convert false).", scan_id, reco_id)
                     continue
                 parts: List[Tuple[Optional[int], Optional[Mapping[str, Any]]]] = [(None, None)]
                 if plan.split is not None:
-                    cm_output.validate_split_parts(plan.split, namespace_names)
-                    shape, shape_desc = _frame_layout(loader, scan_id, reco_id)
-                    _, notes = cm_output.plan_split(shape_desc, shape, plan.split)
-                    for note in notes:
-                        logger.info("scan %s reco %s: %s", scan_id, reco_id, note)
+                    _check_split(loader, scan_id, reco_id, plan.split, namespace_names)
                     parts = [(k, part) for k, part in enumerate(plan.split, start=1)]
             except context_map_core.ContextMapError as exc:
                 logger.error("Context map, scan %s reco %s: %s", scan_id, reco_id, exc)
@@ -656,8 +679,11 @@ def _convert_with_map_template(
         return 2
 
     # 2) names: template, utils.counter, sanitize
+    # every file an output writes counts: the NIfTI and, with -c, its sidecar
+    exts = [ext] + ([".json"] if args.sidecar and ext != ".json" else [])
+
     def exists(name: str) -> bool:
-        return (out_dir / f"{name}{ext}").exists()
+        return any((out_dir / f"{name}{e}").exists() for e in exts)
 
     rendered: List[str] = []
     for item in outputs:

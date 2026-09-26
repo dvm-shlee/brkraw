@@ -227,7 +227,12 @@ def test_split_without_template_checks_one_axis_and_notes_missing_frames(tmp_pat
 
 
 def test_metadata_rules_do_not_depend_on_sidecar_option(study, tmp_path):
-    # AcquisitionDateTime is a sidecar (metadata) field, not scan info
+    # AcquisitionDateTime is a sidecar (metadata) field, not scan info; the
+    # metadata spec comes with `brkraw init` (the test config home starts empty)
+    assert main(["init", "--yes", "--install-default"]) == 0
+    meta = brkraw.load(str(study)).get_metadata(3, reco_id=1) or {}
+    assert meta.get("AcquisitionDateTime") == "2024-03-15T10:10:10,123-0400"
+    assert "AcquisitionDateTime" not in brkraw.load(str(study)).info(scope="scan", as_dict=True).get(3, {})
     data = {"__meta__": {"category": "context_map", "layout_template": "E{x.scan}"},
             "x": {"scan": {"from": "ScanID"}},
             "convert": [{"when": {"ScanID": 3, "AcquisitionDateTime": "2024-03-15T10:10:10,123-0400"},
