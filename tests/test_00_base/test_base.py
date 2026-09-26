@@ -5,6 +5,8 @@ import hashlib
 import os
 from pathlib import Path
 
+import pytest
+
 import brkraw
 from brkraw.apps.loader import info as info_resolver
 from brkraw.core import config as config_core
@@ -115,6 +117,7 @@ def test_find_approved_zips_without_folder_or_readme(tmp_path):
     assert found == [] and "README" in reasons[0]
 
 
+@pytest.mark.agent_fixtures
 def test_approved_zips_fixture_copies_or_skips(approved_zips, tmp_path):
     # Runs against the real local folder when present; skips on CI.
     paths = approved_zips("pv5.1")
