@@ -21,7 +21,7 @@ __all__ = [
     "hook_resolver",
     "pruner",
     "rules",
-    "addon",
+    "context_map",
     "addon_manager",
     "validate_meta",
     "transform",
@@ -64,7 +64,8 @@ _LAZY: Dict[str, Tuple[str, str | None]] = {
     "hook": ("brkraw.specs", "hook"),
     "pruner": ("brkraw.specs", "pruner"),
     "rules": ("brkraw.specs", "rules"),
-    "addon": ("brkraw.specs", "remapper"),
+    # context map v3 (0.6.0 renamed brkraw.api.addon; no alias, BRK-0020)
+    "context_map": ("brkraw.specs", "context_map"),
 
     # meta
     "validate_meta": ("brkraw.specs.meta", "validate_meta"),
@@ -117,6 +118,6 @@ if TYPE_CHECKING:
         shape as shape_resolver,
     )
     from brkraw.specs import hook as hook, pruner as pruner, rules as rules
-    from brkraw.specs import remapper as addon
+    from brkraw.specs import context_map as context_map
     from brkraw.specs.meta import validate_meta as validate_meta
     from brkraw.api import types as types
