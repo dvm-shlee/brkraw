@@ -17,6 +17,19 @@ from brkraw.apps.loader import BrukerLoader
 
 logger = logging.getLogger(__name__)
 
+ROOT_HELP = "Config folder to use (default: BRKRAW_CONFIG_HOME, else ~/.brkraw)."
+
+
+def add_root_argument(parser) -> None:
+    """Add the common ``--root DIR`` option (config folder) to a command parser.
+
+    brkraw's own commands all use it; plugin commands can call this so
+    ``--root`` means the same everywhere. ``brkraw`` applies it for the whole
+    run (it wins over ``BRKRAW_CONFIG_HOME``).
+    """
+    parser.add_argument("--root", default=None, metavar="DIR", help=ROOT_HELP)
+
+
 @contextmanager
 def spinner(prefix: str = "Loading") -> Iterator[None]:
     """Display a simple CLI spinner while a block runs.

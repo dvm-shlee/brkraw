@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 import numpy as np
 
-from brkraw.cli.utils import load
+from brkraw.cli.utils import add_root_argument, load
 
 logger = logging.getLogger(__name__)
 
@@ -103,4 +103,5 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         nargs="*",
         help="Parameter file(s) to search (method, acqp, visu_pars, reco).",
     )
+    add_root_argument(params_parser)
     params_parser.set_defaults(func=cmd_params, parser=params_parser)

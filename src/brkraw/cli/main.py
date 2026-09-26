@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import re
 import os
-import shutil
-import subprocess
 import argparse
 import sys
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 from ..core.entrypoints import list_entry_points as _iter_entry_points
 
 from brkraw import __version__
 from brkraw.core import config as config_core
+from brkraw.cli import pvcmd
 
 PLUGIN_GROUP = "brkraw.cli"
 HELP_CATEGORY_ORDER = ("Data", "Workspace", "Extensions")
@@ -18,7 +17,6 @@ HELP_COMMAND_ORDER = {
     "info": 0,
     "params": 1,
     "convert": 2,
-    "convert-batch": 3,
     "prune": 4,
     "init": 5,
     "config": 6,
@@ -31,7 +29,6 @@ HELP_CATEGORY_BY_COMMAND = {
     "info": "Data",
     "params": "Data",
     "convert": "Data",
-    "convert-batch": "Data",
     "prune": "Data",
     "init": "Workspace",
     "config": "Workspace",
@@ -42,49 +39,13 @@ HELP_CATEGORY_BY_COMMAND = {
 }
 
 
-def _run_capture(cmd: list[str]) -> str:
-    p = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    return p.stdout
-
-
-def _pv_autoset_env() -> None:
-    if shutil.which("pvcmd") is None:
-        return
-
-    p = subprocess.run(["pvcmd", "-e", "ParxServer"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if p.returncode != 0:
-        return
-
-    out = _run_capture(["pvcmd", "-a", "ParxServer", "-r", "ListPs", "-csv"])
-    matches = [line for line in out.splitlines() if "REQUEST_ATTR" in line]
-
-    if len(matches) == 0:
-        raise SystemExit("ERROR: No ps entry with REQUEST_ATTR found")
-    if len(matches) > 1:
-        msg = "ERROR: Multiple ps entries with REQUEST_ATTR found\n" + "\n".join(matches)
-        raise SystemExit(msg)
-
-    line = matches[0]
-    parts = line.split(";")
-
-    m = None
-    for f in parts:
-        f = f.strip()
-        m = re.match(r"^(?P<exp_path>.+)/(?P<scan_id>\d+)/pdata/(?P<reco_id>\d+)$", f)
-        if m:
-            break
-
-    if not m:
-        raise SystemExit("ERROR: No valid <exp_path>/<scan_id>/pdata/<reco_id> path found")
-
-    exp_path = m.group("exp_path")
-    scan_id = m.group("scan_id")
-    reco_id = m.group("reco_id")
-
-    os.environ["BRKRAW_PATH"] = exp_path
-    os.environ["BRKRAW_SCAN_ID"] = scan_id
-    os.environ["BRKRAW_RECO_ID"] = reco_id
-
+def _apply_root(args: argparse.Namespace) -> bool:
+    """Use ``--root DIR`` as the config folder for the whole run (wins over BRKRAW_CONFIG_HOME)."""
+    root = getattr(args, "root", None)
+    if not root:
+        return False
+    os.environ[config_core.ENV_CONFIG_HOME] = str(Path(root).expanduser())
+    return True
 
 def _register_entry_point_commands(
     subparsers: argparse._SubParsersAction,  # type: ignore[name-defined]
@@ -107,7 +68,6 @@ def _register_entry_point_commands(
         "info",
         "params",
         "convert",
-        "convert-batch",
         "prune",
         "addon",
         "hook",
@@ -191,8 +151,8 @@ def _print_help(
     print(_render_help(parser, subparsers), end="")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    config_core.configure_logging()
+def build_parser() -> Tuple[argparse.ArgumentParser, "argparse._SubParsersAction"]:  # type: ignore[name-defined]
+    """Build the ``brkraw`` parser with every registered command (core and plugins)."""
     parser = argparse.ArgumentParser(
         prog="brkraw",
         description="BrkRaw command-line interface.",
@@ -212,7 +172,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     _register_entry_point_commands(subparsers)
-    _pv_autoset_env()
+    return parser, subparsers
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    config_core.configure_logging()
+    parser, subparsers = build_parser()
 
     argv_list = list(sys.argv[1:] if argv is None else argv)
     if not argv_list:
@@ -226,6 +191,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not hasattr(args, "func"):
         _print_help(parser, subparsers)
         return 2
+    if _apply_root(args):
+        # logging settings come from the chosen config folder
+        config_core.configure_logging()
+    # Only after parsing: -h/--version never get here, and only commands whose
+    # dataset path is empty ask ParaVision (BRK-0030 ①, BRK-0031 ③).
+    pvcmd.autoset_path_from_paravision(args)
     func: Callable[[argparse.Namespace], int] = args.func
     return func(args)
 

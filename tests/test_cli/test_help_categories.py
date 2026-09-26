@@ -49,7 +49,7 @@ def test_main_help_uses_category_sections(monkeypatch, capsys) -> None:
         viewer.set_defaults(func=lambda _: 0)
 
     monkeypatch.setattr(cli_main, "_register_entry_point_commands", fake_register)
-    monkeypatch.setattr(cli_main, "_pv_autoset_env", lambda: None)
+    monkeypatch.setattr(cli_main.pvcmd, "query_ps_text", lambda: None)
 
     rc = cli_main.main(["-h"])
     out = capsys.readouterr().out

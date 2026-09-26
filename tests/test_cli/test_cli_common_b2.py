@@ -123,7 +123,8 @@ def test_query_failure_is_silent(monkeypatch):
 @pytest.mark.parametrize("command", CORE_COMMANDS)
 def test_every_core_command_accepts_root(command, tmp_path):
     parser, _ = build_parser()
-    extra = {"config": ["show"], "cache": ["info"], "session": ["env"], "addon": ["list"], "hook": ["list"]}
+    extra = {"config": ["show"], "cache": ["info"], "session": ["env"], "addon": ["list"], "hook": ["list"],
+             "prune": ["study", "--spec", "s.yaml"]}
     args = parser.parse_args([command, "--root", str(tmp_path)] + extra.get(command, []))
     assert args.root == str(tmp_path)
 

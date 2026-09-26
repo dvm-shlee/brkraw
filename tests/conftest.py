@@ -38,8 +38,17 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def _isolated_brkraw_env(tmp_path_factory, monkeypatch):
-    """Every test gets its own empty config home and HOME, and no BRKRAW_* session variables."""
+    """Every test gets its own empty config home and HOME, and no BRKRAW_* session variables.
+
+    Variables a test run sets itself (for example BRKRAW_PATH chosen from
+    ParaVision by the CLI) are removed afterwards so they cannot leak into the
+    next test; monkeypatch restores the ones it changed.
+    """
     isolate_brkraw_env(monkeypatch, tmp_path_factory.mktemp("brkraw-env"))
+    before = {k for k in os.environ if k.startswith("BRKRAW_")}
+    yield
+    for key in [k for k in os.environ if k.startswith("BRKRAW_") and k not in before]:
+        del os.environ[key]
 
 
 @pytest.fixture

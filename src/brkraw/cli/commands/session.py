@@ -39,6 +39,7 @@ def cmd_set(args: argparse.Namespace) -> int:
         and not args.param_key
         and not args.param_file
         and not args.convert_option
+        and not getattr(args, "root", None)
     ):
         parser = getattr(args, "parser", None)
         if parser is not None:
@@ -48,6 +49,9 @@ def cmd_set(args: argparse.Namespace) -> int:
         print("You can still use `eval \"$(brkraw session set ...)\"` directly.")
         return 2
     lines: List[str] = []
+    if getattr(args, "root", None):
+        # `brkraw session --root DIR set ...`: keep using that config folder in this shell.
+        lines.append(_format_export("BRKRAW_CONFIG_HOME", str(Path(args.root).expanduser().absolute())))
     if args.path:
         path = Path(args.path).expanduser()
         if not path.exists():

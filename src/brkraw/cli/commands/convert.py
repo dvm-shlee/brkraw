@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Dict, List, Tuple, Sequence, cast, get_args
 
 import numpy as np
-from brkraw.cli.utils import load
+from brkraw.cli.utils import add_root_argument, load
 from brkraw.cli.hook_args import load_hook_args_yaml, merge_hook_args
 from brkraw.core import config as config_core
 from brkraw.core import layout as layout_core
@@ -34,7 +34,14 @@ _COUNTER_TAG = re.compile(r"\{(?:Counter|counter)\}")
 
 
 def cmd_convert(args: argparse.Namespace) -> int:
-    """Convert a scan/reco to NIfTI with optional metadata sidecars.
+    """Entry point of `brkraw convert`: one dataset, or every dataset in a folder with --batch."""
+    if getattr(args, "batch", False):
+        return _convert_batch(args)
+    return _convert_one(args)
+
+
+def _convert_one(args: argparse.Namespace) -> int:
+    """Convert one dataset (scan/reco) to NIfTI with optional metadata sidecars.
 
     Args:
         args: Parsed CLI arguments for the convert subcommand.
@@ -415,15 +422,21 @@ def cmd_convert(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_convert_batch(args: argparse.Namespace) -> int:
+def _convert_batch(args: argparse.Namespace) -> int:
     """Convert all datasets under a root folder.
 
     Args:
-        args: Parsed CLI arguments for the convert-batch subcommand.
+        args: Parsed CLI arguments for the convert --batch.
 
     Returns:
         Exit status code (0 on success, non-zero on failure).
     """
+    if getattr(args, "scan_id", None) is not None or getattr(args, "reco_id", None) is not None:
+        logger.error("--batch converts every dataset in the folder; -s/--scan-id and -r/--reco-id cannot be used with it.")
+        return 2
+    if getattr(args, "context_map", None):
+        logger.error("--batch cannot apply one --context-map to every dataset; convert datasets one by one to use -M/--context-map.")
+        return 2
     if args.path is None:
         args.path = os.environ.get("BRKRAW_PATH")
     if args.path is None:
@@ -436,7 +449,7 @@ def cmd_convert_batch(args: argparse.Namespace) -> int:
     if args.output:
         out_path = Path(args.output)
         if out_path.suffix in {".nii", ".gz"} or out_path.name.endswith(".nii.gz"):
-            logger.error("When using convert batch, --output must be a directory.")
+            logger.error("With --batch, --output must be a directory.")
             return 2
         if not args.output.endswith(os.sep):
             args.output = f"{args.output}{os.sep}"
@@ -452,8 +465,9 @@ def cmd_convert_batch(args: argparse.Namespace) -> int:
         logger.info("Converting dataset: %s", dataset_path)
         dataset_args = argparse.Namespace(**vars(args))
         dataset_args.path = str(dataset_path)
+        dataset_args.batch = False
         try:
-            rc = cmd_convert(dataset_args)
+            rc = _convert_one(dataset_args)
         except Exception as exc:
             logger.error("Failed to convert %s: %s", dataset_path, exc)
             failures += 1
@@ -948,7 +962,7 @@ def _add_convert_args(
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[name-defined]
-    """Register convert subcommands on the main CLI parser.
+    """Register the convert command on the main CLI parser.
 
     Args:
         subparsers: Subparser collection from argparse.
@@ -960,19 +974,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
     convert_parser.add_argument(
         "path",
         nargs="?",
-        help="Path to the Bruker study.",
+        help="Path to the Bruker study (with --batch: a folder of studies).",
     )
+    convert_parser.add_argument("--batch", action="store_true", help="Convert every dataset in the folder PATH (not with -s, -r or -M).")
     _add_convert_args(convert_parser, output_help="Output directory or .nii/.nii.gz file path.")
+    add_root_argument(convert_parser)
     convert_parser.set_defaults(func=cmd_convert, parser=convert_parser)
-
-    batch_parser = subparsers.add_parser(
-        "convert-batch",
-        help="Convert all datasets under a root folder.",
-    )
-    batch_parser.add_argument("path", help="Root folder containing datasets.")
-    _add_convert_args(
-        batch_parser,
-        output_help="Output directory.",
-        include_scan_reco=False,
-    )
-    batch_parser.set_defaults(func=cmd_convert_batch, parser=batch_parser)

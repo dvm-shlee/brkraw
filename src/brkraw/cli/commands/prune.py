@@ -11,7 +11,7 @@ from typing import Optional
 
 import yaml
 
-from brkraw.cli.utils import spinner
+from brkraw.cli.utils import add_root_argument, spinner
 from brkraw.core import config as config_core
 from brkraw.specs.pruner import prune_dataset_to_zip_from_spec
 
@@ -21,12 +21,10 @@ logger = logging.getLogger(__name__)
 def cmd_prune(args: argparse.Namespace) -> int:
     output = args.output
     root_name_override = None
-    dirs_override = _build_dir_override(args.scan_ids, args.reco_ids)
+    dirs_override = _build_dir_override(args.scan_id, args.reco_id)
     template_vars = _parse_kv_pairs(args.set_vars)
     try:
-        spec_path = _resolve_pruner_spec(
-            args.spec_name if args.spec_name else args.spec
-        )
+        spec_path = _resolve_pruner_spec(args.spec)
     except ValueError as exc:
         logger.error("%s", exc)
         return 2
@@ -70,8 +68,8 @@ def cmd_prune(args: argparse.Namespace) -> int:
             settings={
                 "mode": args.mode,
                 "strip_jcamp_comments": strip_used,
-                "scan_ids": args.scan_ids,
-                "reco_ids": args.reco_ids,
+                "scan_id": args.scan_id,
+                "reco_id": args.reco_id,
                 "template_vars": template_vars,
                 "root_name_override": root_name_override,
                 "dirs_override": dirs_override,
@@ -93,18 +91,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         type=str,
         help="Source dataset path.",
     )
-    spec_group = prune_parser.add_mutually_exclusive_group(required=True)
-    spec_group.add_argument(
+    prune_parser.add_argument(
         "--spec",
         dest="spec",
         type=str,
-        help="Path to prune spec YAML (or basename of installed spec).",
-    )
-    spec_group.add_argument(
-        "--spec-name",
-        dest="spec_name",
-        type=str,
-        help="Use an installed pruner spec by name (basename, no path).",
+        required=True,
+        help="Pruner spec: a YAML path, or the name of a spec installed in the config folder.",
     )
     prune_parser.add_argument(
         "-o",
@@ -152,17 +144,22 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         help="Template variable for use in prune spec (can repeat).",
     )
     prune_parser.add_argument(
-        "--scan-ids",
+        "-s",
+        "--scan-id",
+        dest="scan_id",
         nargs="+",
         metavar="SCAN_ID",
-        help="Override scan IDs to keep (space or comma separated).",
+        help="Keep only these scans (space or comma separated).",
     )
     prune_parser.add_argument(
-        "--reco-ids",
+        "-r",
+        "--reco-id",
+        dest="reco_id",
         nargs="+",
         metavar="RECO_ID",
-        help="Override reco IDs to keep (space or comma separated).",
+        help="Keep only these recos of each kept scan (space or comma separated).",
     )
+    add_root_argument(prune_parser)
     prune_parser.set_defaults(func=cmd_prune)
 
 
@@ -231,7 +228,7 @@ def write_prune_record(
 
 def _resolve_pruner_spec(value: Optional[str]) -> Path:
     if value is None:
-        raise ValueError("A prune spec is required (use --spec or --spec-name).")
+        raise ValueError("A pruner spec is required (use --spec).")
     raw = Path(value).expanduser()
     candidates = []
     if raw.suffix:
