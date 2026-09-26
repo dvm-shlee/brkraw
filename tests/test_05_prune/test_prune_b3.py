@@ -188,6 +188,19 @@ def test_anonymize_default_name_top_folder_files_and_values(tmp_path, cwd):
     assert "input_name" not in record
 
 
+def test_anonymized_copy_can_be_read_back_by_brkraw(tmp_path, cwd):
+    # The example spec removes every date; study info must still load (Study.Date empty).
+    import brkraw
+    from brkraw.apps.loader import info as info_resolver
+    from brkraw.apps.loader.info.transform import unixtime_to_datetime
+
+    assert main(["prune", str(_study(tmp_path)), "--anonymize", "--subject-id", "M01", "-o", "a.zip"]) == 0
+    info = info_resolver.study(brkraw.load(str(cwd / "a.zip"))) or {}
+    assert info["Subject"]["ID"] == "M01"
+    assert info["Study"]["Date"] is None
+    assert unixtime_to_datetime(None) is None
+
+
 def test_anonymize_defaults_to_anon_ids(tmp_path, cwd):
     assert main(["prune", str(_study(tmp_path)), "--anonymize"]) == 0
     assert (cwd / "pruned_anon_anon_anon.zip").is_file()
