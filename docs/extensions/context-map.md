@@ -270,10 +270,35 @@ bids:
   `version`, `description` and `category` are not inherited.
 - A circular include, or a missing name or version, is an error.
 
-A name (or `{use: name, version: ...}`) is looked up in the config folder's
-`specs/` (`brkraw config path specs`); the file needs `__meta__.name` and
-`version`. Copy the file there yourself: `brkraw addon add` does not install
-context maps in 0.6.0.
+### Installing a base map
+
+A dataset's own map stays next to the dataset. A **base map** shared by many
+datasets can be installed and then included by name:
+
+```bash
+brkraw addon add lab_base.yaml     # needs __meta__.category: context_map, name and version
+brkraw addon list                  # "Context Maps" table
+brkraw addon rm lab_base.yaml
+```
+
+- Installed maps go into the config folder's `context_maps/`
+  (`brkraw config path context_maps`). The file is validated before it is
+  installed.
+- Hook packages (for example `brkraw-bids`) can ship base maps with the
+  manifest key `context_maps`; `brkraw hook install` puts them under
+  `context_maps/<package namespace>/`.
+
+How an `include` item is found:
+
+1. Text that looks like a path (contains `/`, starts with `.`, or ends with
+   `.yaml` / `.yml`) is a file relative to the including file.
+2. Any other text is a `__meta__.name`, looked up in `context_maps/` (maps
+   added with `brkraw addon add` and maps installed by hook packages); the
+   highest `version` wins.
+3. `{use: name, version: "1.0.0"}` picks that exact version.
+
+Two installed files with the same name and version are an error (pin the
+version or remove one).
 
 ## Python API
 

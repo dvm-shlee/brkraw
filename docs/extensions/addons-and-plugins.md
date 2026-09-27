@@ -37,6 +37,7 @@ Addon types include:
 - specs
 - rules
 - pruner specs
+- shared context maps (bases for `include`, in `context_maps/`)
 - transforms
 
 Addons are managed via the `addon` CLI and API.

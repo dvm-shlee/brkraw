@@ -70,6 +70,11 @@ Optional:
 
 - `pruner_specs`: you can ship pruner specs with a hook when you want to bundle
   a “share/de-identify” pruning preset alongside the conversion pipeline.
+- `context_maps`: shared context maps, bases that users include by name (for
+  example a BIDS base map shipped by `brkraw-bids`). They are installed under
+  `context_maps/<namespace>/`, need `__meta__.name` and `version`, and are
+  removed with the hook. Users include them with `include: [name]` or
+  `include: [{use: name, version: "1.0.0"}]`.
 
 ---
 

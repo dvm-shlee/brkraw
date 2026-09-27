@@ -107,6 +107,7 @@ Addons are YAML and Python files installed into the user's brkraw config root:
 - specs (YAML)
 - rules (YAML)
 - pruner specs (YAML)
+- shared context maps (YAML, bases for `include`)
 - transforms (Python)
 
 Addons are managed by:

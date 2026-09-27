@@ -116,5 +116,18 @@ header holds only one.
 
 - `brkraw init --yes` changes your shell file (see above); a quieter option
   is planned.
-- `brkraw addon add` does not install context maps; to include a shared map
-  by name, copy it into the config folder's `specs/`.
+
+## Shared context maps
+
+- A base map shared by many datasets is installed with `brkraw addon add`
+  into the config folder's new `context_maps/` folder and included by name;
+  hook packages can ship base maps too (manifest key `context_maps`). A
+  dataset's own map stays next to the dataset. See
+  [Context maps](../extensions/context-map.md#installing-a-base-map).
+
+## New warnings
+
+- brkraw warns when the frames of one slice pack do not share one
+  orientation, or when a slope or offset is stored with more than one
+  dimension that does not match the frame axes. The data is converted as
+  before; check such scans.

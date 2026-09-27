@@ -16,7 +16,8 @@ The folder is created by [`brkraw init`](init.md).
 
 !!! note "Changed in 0.6.0"
     `brkraw config init` was removed; use `brkraw init`. `config path` now
-    also knows `pruner_specs`.
+    also knows `pruner_specs` and the new `context_maps` folder (installed
+    base context maps).
 
 ---
 
@@ -48,6 +49,7 @@ brkraw config path config
 brkraw config path rules
 brkraw config path specs
 brkraw config path pruner_specs
+brkraw config path context_maps
 brkraw config path transforms
 brkraw config path cache
 ```

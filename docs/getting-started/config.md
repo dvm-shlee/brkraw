@@ -191,6 +191,7 @@ extensions:
 rules/
 specs/
 pruner_specs/
+context_maps/
 transforms/
 ```
 
