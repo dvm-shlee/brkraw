@@ -108,7 +108,8 @@ def make_synthetic_study(
     ``np.arange(16 * 6).reshape((4, 4, 1, 2, 3), order="F")``.
 
     ``packs`` maps scan id -> number of slice packs (one slice each, an
-    ``FG_SLICE`` group in front of the frame groups). ``slopes`` maps scan id
+    ``FG_SLICE`` group in front of the frame groups, unless ``frames`` places
+    ``("FG_SLICE", n)`` itself). ``slopes`` maps scan id
     -> the VisuCoreDataSlope values to write (VisuCoreDataOffs gets as many 0).
     """
     packs = packs or {}
@@ -155,7 +156,7 @@ def make_synthetic_study(
         pdir.mkdir(parents=True, exist_ok=True)
         groups = list(frames.get(sid, []))
         n_packs = int(packs.get(sid, 1))
-        if n_packs > 1:
+        if n_packs > 1 and not any(name == "FG_SLICE" for name, _ in groups):
             groups = [("FG_SLICE", n_packs)] + groups
         n_frames = 1
         for _, size in groups:

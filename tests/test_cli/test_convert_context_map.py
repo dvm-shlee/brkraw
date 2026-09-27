@@ -384,29 +384,22 @@ def test_same_name_map_on_approved_zips(pv, approved_zips, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Scaling regression from 0.6.0a1 (2d93b67): one slope value per frame.
-# 0.5.7 converts these scans. Strict xfail until the Director picks the handling.
+# Scaling regression from 0.6.0a1 (2d93b67), fixed by BRK-0035 (option C):
+# one slope value per frame. Frame-level tests are in tests/test_03_resolver/test_frame_scaling.py.
 # ---------------------------------------------------------------------------
 
-KNOWN_SLOPE_FAILURES = {"pv5.1-02.zip": {11}, "pv360-3.1-01.zip": {4}}
-
-
-@pytest.mark.xfail(strict=True, reason="per-frame VisuCoreDataSlope (0.6.0a1 regression, 2d93b67); handling pending")
-def test_per_frame_uniform_slope_converts(tmp_path):
-    st = make_synthetic_study(tmp_path / "data" / "slope", pv="360.3.3", scans={5: "EPI"},
-                              frames={5: [("FG_CYCLE", 3)]}, slopes={5: [2.0, 2.0, 2.0]})
-    out = tmp_path / "o.nii.gz"
-    assert main(["convert", str(st), "-s", "5", "-o", str(out), "--no-context-map"]) == 0
-    img = nib.load(str(out))
-    raw = np.asarray(brkraw.load(str(st)).get_dataobj(5, 1))
-    assert np.allclose(np.asarray(img.dataobj), raw * 2.0)
+KNOWN_SLOPE_FAILURES: dict = {}
+SLOPE_SCANS = {"pv5.1-02.zip": {11}, "pv360-3.1-01.zip": {4}}
 
 
 @pytest.mark.agent_fixtures
-@pytest.mark.xfail(strict=True, reason="per-frame VisuCoreDataSlope (0.6.0a1 regression, 2d93b67); handling pending")
 @pytest.mark.parametrize("pv, name", [("pv5.1", "pv5.1-02.zip"), ("pv360-3.x", "pv360-3.1-01.zip")])
 def test_per_frame_slope_scans_convert(pv, name, approved_zips):
     src = [p for p in approved_zips(pv) if p.name == name][0]
     loader = brkraw.load(str(src))
-    for scan_id in KNOWN_SLOPE_FAILURES[name]:
-        assert loader.convert(scan_id, reco_id=1) is not None
+    for scan_id in SLOPE_SCANS[name]:
+        nii = loader.convert(scan_id, reco_id=1)
+        assert nii is not None
+        raw = np.asarray(loader.get_dataobj(scan_id, 1))
+        # these scans have one equal slope per frame: kept in the header, data stays raw (as 0.5.7)
+        assert np.array_equal(np.asarray(nii.dataobj), raw)
