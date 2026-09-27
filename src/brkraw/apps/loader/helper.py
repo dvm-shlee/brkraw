@@ -14,6 +14,7 @@ from typing import (
     List, 
     Dict,
     Sequence,
+    NamedTuple,
 )
 from pathlib import Path
 from warnings import warn
@@ -124,8 +125,8 @@ def _normalize_pack_scaling(
 
     if raw.size == 0:
         raw = np.asarray([default], dtype=float)
-    if raw.size > 1 and np.allclose(raw, raw[0], equal_nan=True):
-        # equal values (for example one per frame) are one scalar (BRK-0035)
+    if raw.size > 1 and _all_equal(raw):
+        # exactly equal values (for example one per frame) are one scalar (BRK-0035, BRK-0036)
         raw = raw[:1]
 
     normalized_pack_sizes = [int(size) for size in pack_sizes]
@@ -167,6 +168,42 @@ def _scaling_vector(value: Any, default: float) -> np.ndarray:
     return raw if raw.size else np.asarray([default], dtype=float)
 
 
+class FrameScaling(NamedTuple):
+    """How convert() applies VisuCoreDataSlope/VisuCoreDataOffs (BRK-0035, BRK-0036).
+
+    ``mode``: "header" (one value, or one per slice pack: header path),
+    "apply" (``packs`` holds per-pack (slope, offset) arrays for the data) or
+    "skip" (no layout matched; a warning was logged, no scaling).
+    """
+
+    mode: str
+    packs: Optional[List[Tuple[np.ndarray, np.ndarray]]] = None
+
+
+def _all_equal(vec: np.ndarray) -> bool:
+    # exactly equal only (BRK-0036); no tolerance
+    return vec.size <= 1 or bool(np.all(vec == vec[0]))
+
+
+def _scaling_layout(vec: np.ndarray, num_packs: int, fg_shape: Sequence[int]) -> Tuple[str, int]:
+    """BRK-0036 rule for one vector: ("equal", 0), ("pack", 0), ("trailing", j) or ("none", 0).
+
+    Exactly equal values are one value. Otherwise the count is compared with
+    the slice-pack count first, then with the products of the
+    VisuFGOrderDesc axes from the back (last axis, last two, ... all axes =
+    one value per frame); ``j`` is the number of trailing axes the values
+    vary along (the smallest j that matches).
+    """
+    if _all_equal(vec):
+        return "equal", 0
+    if vec.size == num_packs:
+        return "pack", 0
+    for j in range(1, len(fg_shape) + 1):
+        if int(np.prod(fg_shape[-j:])) == vec.size:
+            return "trailing", j
+    return "none", 0
+
+
 def _frame_scaling(
     scan: "ScanLoader",
     reco_id: int,
@@ -175,83 +212,91 @@ def _frame_scaling(
     frames: Optional[Union[int, List[int], str]] = None,
     cycle_index: Optional[int] = None,
     cycle_count: Optional[int] = None,
-) -> Optional[List[Tuple[np.ndarray, np.ndarray]]]:
-    """Per-pack (slope, offset) arrays for different per-frame scaling (BRK-0035, option C).
+) -> FrameScaling:
+    """Decide and lay out VisuCoreDataSlope/VisuCoreDataOffs for convert() (BRK-0035, BRK-0036).
 
-    ParaVision gives ``VisuCoreDataSlope``/``VisuCoreDataOffs`` one value per
-    frame (a 2D slice or a 3D volume) in 2dseq frame order. When the values
-    differ and are not one per slice pack or per slice, they are laid out like
-    the data: reshaped to the frame axes in Fortran order (as 2dseq is read),
-    the same z-axis swap, the same legacy cycle block, the same slice-pack
-    split and the same ``axis``/``frames`` selection. The arrays broadcast
-    against each pack's data. None when no per-frame application is needed
-    (equal values, or the global/per-pack/per-slice cases handled in the header
-    path).
+    Values that vary along trailing frame-group axes are laid out like the
+    data: the frame-group axes are the last axes of the resolved shape, in
+    2dseq (Fortran) order; then the same legacy cycle block, z-axis swap,
+    slice-pack split and ``axis``/``frames`` selection as the data. The
+    arrays broadcast against each pack's data.
     """
     image_info = scan.image_info.get(reco_id)
     affine_info = scan.affine_info.get(reco_id)
     if image_info is None or affine_info is None:
-        return None
+        return FrameScaling("header")
     num_slices = [int(n) for n in affine_info["num_slices"]]
-    total_slices, num_packs = sum(num_slices), len(num_slices)
+    num_packs = len(num_slices)
     slope = _scaling_vector(image_info.get("slope"), 1.0)
     offset = _scaling_vector(image_info.get("offset"), 0.0)
-
-    def per_frame(vec: np.ndarray) -> bool:
-        return (
-            vec.size > 1
-            and not np.allclose(vec, vec[0], equal_nan=True)
-            and vec.size not in (total_slices, num_packs)
-        )
-
-    if not (per_frame(slope) or per_frame(offset)):
-        return None
+    if _all_equal(slope) and _all_equal(offset):
+        return FrameScaling("header")
 
     from ...resolver.shape import resolve as shape_resolve
     from ...specs.context_map.output import pick_axis, select_frames
 
     shape_info = shape_resolve(scan, reco_id=reco_id)
-    if not shape_info:
-        return None
-    shape = [int(n) for n in shape_info["shape"]]
-    n_frames = (slope if per_frame(slope) else offset).size
-    # leading image axes; the rest are frame axes (singleton axes do not change the order)
-    core = next((k for k in range(2, len(shape) + 1) if int(np.prod(shape[k:])) == n_frames), None)
-    if core is None:
-        raise ValueError(
-            f"per-frame scaling has {n_frames} values but the data has frames {shape[2:]} (shape {shape})."
-        )
-
-    def layout(vec: np.ndarray) -> np.ndarray:
-        if vec.size == 1 or np.allclose(vec, vec[0], equal_nan=True):
-            return np.full([1] * len(shape), float(vec[0]))
-        if vec.size != n_frames:
-            raise ValueError(
-                f"slope has {slope.size} and offset has {offset.size} values; per-frame scaling needs "
-                f"equal values or {n_frames} values for both."
+    fg = shape_info["objs"].frame_group if shape_info else None
+    fg_shape = [int(n) for n in (fg or {}).get("shape", [])] if fg and fg.get("type") is not None else []
+    fg_ids = [str(i) for i in (fg or {}).get("id", [])] if fg_shape else []
+    kinds = {}
+    for name, vec in (("VisuCoreDataSlope", slope), ("VisuCoreDataOffs", offset)):
+        kind, j = _scaling_layout(vec, num_packs, fg_shape)
+        if kind == "pack" and any(int(np.prod(fg_shape[-k:])) == vec.size for k in range(1, len(fg_shape) + 1)):
+            logger.info(
+                "scan %s reco %s: %s count %s matches the slice packs and frame axes %s; slice packs are "
+                "checked first (BRK-0036).",
+                getattr(scan, "scan_id", "?"), reco_id, name, vec.size, fg_ids,
             )
-        return vec.reshape(shape[core:], order="F").reshape([1] * core + shape[core:])
+        if kind == "none":
+            logger.warning(
+                "scan %s reco %s: %s has %s values, which match neither the %s slice pack(s) nor a product of "
+                "the frame axes %s %s from the back; scaling not applied.",
+                getattr(scan, "scan_id", "?"), reco_id, name, vec.size, num_packs, fg_ids, fg_shape,
+            )
+            return FrameScaling("skip")
+        kinds[name] = (kind, j)
+    if not any(kind == "trailing" for kind, _ in kinds.values()):
+        return FrameScaling("header")
 
-    arrays = [layout(slope), layout(offset)]
+    shape = [int(n) for n in shape_info["shape"]]
+    ndim = len(shape)
+
+    def layout(vec: np.ndarray, kind: str, j: int) -> Optional[np.ndarray]:
+        if kind == "equal":
+            return np.full([1] * ndim, float(vec[0]))
+        if kind == "pack":
+            return None  # filled per pack below
+        tail = fg_shape[-j:]
+        return vec.reshape(tail, order="F").reshape([1] * (ndim - j) + tail)
+
+    vectors = [slope, offset]
+    arrays = [layout(v, *kinds[n]) for v, n in zip(vectors, ("VisuCoreDataSlope", "VisuCoreDataOffs"))]
 
     # legacy cycle block (cycles are the last axis, as in the 2dseq block read)
     total_cycles = int(image_info.get("num_cycles") or 1)
     if (cycle_index is not None or cycle_count is not None) and total_cycles > 1:
         start = int(cycle_index or 0)
         stop = None if cycle_count is None else start + int(cycle_count)
-        arrays = [a if a.shape[-1] == 1 else a[..., start:stop] for a in arrays]
+        arrays = [a if a is None or a.shape[-1] == 1 else a[..., start:stop] for a in arrays]
 
-    shape_desc: List[str] = []
-    swapped = []
+    shape_desc: List[str] = list(image_resolver.normalized_layout(shape_info)[1])
+    swapped: List[Optional[np.ndarray]] = []
     for arr in arrays:
+        if arr is None:
+            swapped.append(None)
+            continue
         out, shape_desc = image_resolver.ensure_3d_spatial_data(arr, shape_info)
         swapped.append(out)
 
     packs: List[Tuple[np.ndarray, np.ndarray]] = []
     start = 0
-    for count in num_slices:
+    for p, count in enumerate(num_slices):
         pair = []
-        for arr in swapped:
+        for vec, arr in zip(vectors, swapped):
+            if arr is None:  # one value per slice pack
+                pair.append(np.full([1] * ndim, float(vec[p])))
+                continue
             part = arr if arr.shape[2] == 1 else arr[:, :, start:start + count]
             if frames is not None:
                 ax = pick_axis(shape_desc, axis)
@@ -261,9 +306,14 @@ def _frame_scaling(
                 else:
                     part, _ = select_frames(part, shape_desc, axis, frames)
             pair.append(part)
+        if frames is not None and isinstance(frames, int) and not isinstance(frames, bool):
+            # a per-pack scalar array must lose the selected axis too
+            ax = pick_axis(shape_desc, axis)
+            pair = [np.take(a, 0, axis=ax) if a.ndim == ndim and a.shape[ax] == 1 and all(
+                s == 1 for s in a.shape) else a for a in pair]
         packs.append((pair[0], pair[1]))
         start += count
-    return packs
+    return FrameScaling("apply", packs)
 
 
 def resolve_data_and_affine(
@@ -1001,16 +1051,19 @@ def convert(
             cycle_index=merged_kwargs.get("cycle_index"),
             cycle_count=merged_kwargs.get("cycle_count"),
         )
-        if frame_scaling is not None:
-            if len(frame_scaling) != len(dataobjs):
+        if frame_scaling.mode == "apply":
+            assert frame_scaling.packs is not None
+            if len(frame_scaling.packs) != len(dataobjs):
                 raise ValueError(
-                    f"per-frame scaling has {len(frame_scaling)} slice packs, data has {len(dataobjs)}."
+                    f"per-frame scaling has {len(frame_scaling.packs)} slice packs, data has {len(dataobjs)}."
                 )
             dataobjs = [
                 np.asarray(d, dtype=float) * s_arr + o_arr
-                for d, (s_arr, o_arr) in zip(dataobjs, frame_scaling)
+                for d, (s_arr, o_arr) in zip(dataobjs, frame_scaling.packs)
             ]
             scaling_applied = True
+        elif frame_scaling.mode == "skip":
+            scaling_applied = True  # header 1/0, data raw
     for i, dataobj in enumerate(dataobjs):
         if flatten_fg and dataobj.ndim > 4:
             spatial_shape = dataobj.shape[:3]

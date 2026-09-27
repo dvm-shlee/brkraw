@@ -220,7 +220,8 @@ def _coerce_scaling(value, *, name: str) -> Tuple[float, bool]:
         if arr.size == 0:
             return 0.0, False
         first = float(arr[0])
-        if arr.size == 1 or np.allclose(arr, first, equal_nan=True):
+        if arr.size == 1 or bool(np.all(arr == first)):
+            # exactly equal only (BRK-0036); no tolerance
             return first, False
         logger.debug("NIfTI %s has multiple distinct values; applying it to dataobj.", name)
         return first, True
