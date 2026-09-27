@@ -93,6 +93,8 @@ def make_synthetic_study(
     slopes: Optional[Dict[int, List[float]]] = None,
     offsets: Optional[Dict[int, List[float]]] = None,
     depth: Optional[Dict[int, int]] = None,
+    slope_shape: Optional[Dict[int, List[int]]] = None,
+    orientations: Optional[Dict[int, List[str]]] = None,
 ) -> Path:
     """Write a small ParaVision-like study folder at ``root`` and return it.
 
@@ -115,11 +117,16 @@ def make_synthetic_study(
     -> the VisuCoreDataSlope values to write (VisuCoreDataOffs gets as many 0,
     unless ``offsets`` gives them). ``depth`` maps scan id -> z size of a 3D
     scan (VisuCoreDim 3, 4 x 4 x depth per frame, no slice frame group).
+    ``slope_shape`` gives the declared JCAMP shape of slope and offset (for
+    example ``[3, 2]``), ``orientations`` one 9-value text per frame for
+    VisuCoreOrientation (default: identity for every frame).
     """
     packs = packs or {}
     slopes = slopes or {}
     offsets = offsets or {}
     depth = depth or {}
+    slope_shape = slope_shape or {}
+    orientations = orientations or {}
     frames = frames or {}
     scans = scans or {1: "FLASH", 3: "RARE"}
     m = SYNTH_MARKERS
@@ -206,7 +213,8 @@ def make_synthetic_study(
         visu = core + [
             ("VisuCoreFrameCount", str(n_frames)),
             ("VisuCoreFrameType", f"( {n_frames} )\n" + " ".join(["MAGNITUDE_IMAGE"] * n_frames)),
-            ("VisuCoreOrientation", f"( {n_frames}, 9 )\n" + " ".join(["1 0 0 0 1 0 0 0 1"] * n_frames)),
+            ("VisuCoreOrientation", f"( {n_frames}, 9 )\n"
+             + " ".join(orientations.get(sid) or ["1 0 0 0 1 0 0 0 1"] * n_frames)),
             ("VisuCorePosition", f"( {n_frames}, 3 )\n" + " ".join(["0 0 0"] * n_frames)),
             ("VisuSubjectType", "Quadruped"),
             ("VisuSubjectPosition", "Head_Supine"),
@@ -235,9 +243,10 @@ def make_synthetic_study(
         if sid in slopes or sid in offsets:
             vals = [float(v) for v in slopes.get(sid, [1.0])]
             offs = [float(v) for v in offsets.get(sid, [0.0] * len(vals))]
+            dims = ", ".join(str(d) for d in slope_shape.get(sid, []))
             visu += [
-                ("VisuCoreDataSlope", f"( {len(vals)} )\n" + " ".join(repr(v) for v in vals)),
-                ("VisuCoreDataOffs", f"( {len(offs)} )\n" + " ".join(repr(v) for v in offs)),
+                ("VisuCoreDataSlope", f"( {dims or len(vals)} )\n" + " ".join(repr(v) for v in vals)),
+                ("VisuCoreDataOffs", f"( {dims or len(offs)} )\n" + " ".join(repr(v) for v in offs)),
             ]
         if groups:
             desc = " ".join(f"({size}, <{name}>, <>, 0, 0)" for name, size in groups)
