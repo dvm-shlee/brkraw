@@ -37,11 +37,14 @@ brkraw hook --root /path/to/config list
 ## What gets installed
 
 When you install a hook, BrkRaw installs addon assets under a per-hook namespace
-to avoid filename collisions:
+to avoid filename collisions. The namespace is the package name (for example
+`brkraw-sordino`):
 
 - specs: `~/.brkraw/specs/<hook-namespace>/...`
 - rules: `~/.brkraw/rules/<hook-namespace>/...`
 - pruner specs: `~/.brkraw/pruner_specs/<hook-namespace>/...`
+- context maps: `~/.brkraw/context_maps/<hook-namespace>/...` (included by
+  their `__meta__.name`; the folder name does not matter for `include`)
 - transforms: `~/.brkraw/transforms/<hook-namespace>/...`
 
 BrkRaw also records installed files in a registry file:
