@@ -314,7 +314,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
             "Set BRKRAW_CONVERT_<OPTION> as KEY=VALUE (repeatable). "
             "Keys: OUTPUT, PREFIX, SCAN_ID, RECO_ID, SIDECAR, "
             "COMPRESS, SPACE, FLATTEN_FG, OVERRIDE_SUBJECT_TYPE, "
-            "OVERRIDE_SUBJECT_POSE, XYZ_UNITS, T_UNITS, HEADER, FORMAT."
+            "OVERRIDE_SUBJECT_POSE, XYZ_UNITS, T_UNITS, HEADER."
         ),
     )
     set_parser.set_defaults(session_func=cmd_set, parser=set_parser)

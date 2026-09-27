@@ -62,9 +62,9 @@ This creates a configuration directory (by default under `~/.brkraw`)
 and a base `config.yaml` file. It asks whether to install the default specs
 and rules (needed for sidecar metadata with `-c`) and whether to add the
 shell helpers `brkraw-set` / `brkraw-unset` to your shell file. With `--yes`
-it asks nothing: it writes `config.yaml` with defaults and adds the shell
-helpers to your shell file (the default specs only with `--install-default`);
-see [init](../cli/init.md).
+it asks nothing: it writes `config.yaml` with defaults and leaves your shell
+file alone (the default specs only with `--install-default`, the shell helpers
+only with `--shell-rc FILE`); see [init](../cli/init.md).
 
 Most users can start with the defaults and adjust settings later as needed.
 Moving from 0.5.x? See [Migrating to 0.6](migrating.md).

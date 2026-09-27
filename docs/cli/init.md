@@ -5,7 +5,8 @@ rules and the shell helpers.
 
 ```bash
 brkraw init                              # asks each step
-brkraw init --install-default --yes      # no questions (see the note on --yes)
+brkraw init --install-default --yes      # no questions; your shell file is not changed
+brkraw init --yes --shell-rc ~/.zshrc    # no questions, and add the shell helpers
 brkraw init --root /path/to/config       # another config folder
 ```
 
@@ -25,13 +26,14 @@ Asked step by step without `--yes`:
    (`--install-default`), needed for sidecar metadata (`-c`);
 3. add the shell helpers `brkraw-set` and `brkraw-unset` to your shell file.
 
-!!! warning "`--yes` also changes your shell file"
-    With `--yes`, brkraw writes `config.yaml` with the default values and,
-    when your shell is zsh or bash, **appends the shell helpers to
-    `~/.zshrc` or `~/.bashrc`** (once; a second run sees them and does
-    nothing). This is also true for `--yes --install-default`. To keep your
-    shell file unchanged, run `brkraw init` without `--yes` and answer "no"
-    to the shell helper question.
+With `--yes`, brkraw asks nothing and writes `config.yaml` with the default
+values. It changes a shell file only when you name one with `--shell-rc FILE`
+(once; a second run sees the helpers and does nothing). Without `--yes`, the
+shell helper question suggests `~/.zshrc` or `~/.bashrc`.
+
+!!! note "Changed in 0.6.0rc1"
+    In 0.6.0b1, `--yes` appended the shell helpers to `~/.zshrc` or
+    `~/.bashrc` by itself. It no longer does.
 
 ## Options
 
@@ -41,8 +43,8 @@ Asked step by step without `--yes`:
 | `--no-exist-ok` | Stop if the folder already exists. |
 | `--config` | Create or replace `config.yaml` only (asks for the values). |
 | `--install-default` | Install the default specs, rules, pruner specs and transforms. |
-| `--shell-rc FILE` | Append the shell helpers to this file. |
-| `--yes` | No questions; use the defaults (see the warning above). |
+| `--shell-rc FILE` | Append the shell helpers to this file (also with `--yes`). |
+| `--yes` | No questions; use the defaults. Does not change any shell file. |
 
 ## Shell helpers
 

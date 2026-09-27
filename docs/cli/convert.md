@@ -5,6 +5,7 @@ Convert ParaVision scans to NIfTI files, optionally with JSON sidecars.
 ```bash
 brkraw convert /path/to/study                    # every scan and reco
 brkraw convert /path/to/study -s 3 -r 1 -o out/  # one scan, one reco
+brkraw convert /path/to/study -s 3 4 5 -o out/   # three scans (also -s 3,4,5)
 brkraw convert /path/to/studies --batch -o out/  # every study in a folder
 ```
 
@@ -21,8 +22,11 @@ or on a scanner console the study open in ParaVision.
 
 | Option | Meaning |
 | --- | --- |
-| `-s`, `--scan-id` | Scan ID to convert. Without it, every scan is converted. |
-| `-r`, `--reco-id` | Reco ID to convert. Without it, every reco of each scan is converted. |
+| `-s`, `--scan-id` | Scan ID(s) to convert: `-s 3`, `-s 3 4 5` or `-s 3,4,5`. Without it, every scan is converted. With two or more, `--output` must be a folder. |
+| `-r`, `--reco-id` | Reco ID to convert. Without it, every reco of each scan is converted. With `-s`, every named scan must have this reco, else nothing is written; without `-s`, scans that lack it are skipped. |
+
+A scan ID that the dataset does not have stops the run before anything is
+written.
 | `--batch` | Convert every dataset in the folder `path` (sub-folders and `.zip` files directly under it). Not with `-s`, `-r` or `-M`. |
 
 With `--batch`, one failed dataset does not stop the others; the run fails

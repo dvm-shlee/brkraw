@@ -68,9 +68,16 @@ naming the old word.
 - Without a path, commands use the study set with `brkraw session`, or on a
   scanner console the study open in ParaVision (asking which one in a
   terminal when several are open).
-- `brkraw init --yes` writes `config.yaml` with defaults **and appends the
-  shell helpers to `~/.zshrc` or `~/.bashrc`** when your shell is zsh or bash
-  (also with `--install-default`). Run `brkraw init` without `--yes` to choose.
+- `brkraw init --yes` writes `config.yaml` with defaults and changes no shell
+  file; add the shell helpers with `--shell-rc FILE` (0.6.0b1 appended them
+  to `~/.zshrc` or `~/.bashrc` by itself).
+- `brkraw convert -s` takes several scans: `-s 3 4 5` or `-s 3,4,5` (then
+  `--output` is a folder). With `-r`, every named scan must have that reco,
+  else nothing is written. `BRKRAW_SCAN_ID="3,4"` from `brkraw session` now
+  converts both scans (before: only the first).
+- `brkraw params` prints its result to standard output (before: through the
+  log, so `logging.level: WARNING` hid it). It searches one scan: a
+  `BRKRAW_SCAN_ID` with several ids is an error.
 
 ## Outputs that change from 0.5.7
 
@@ -111,11 +118,6 @@ header holds only one.
   All other recos give the same values as 0.5.7.
 - The layout rule and its warnings are described under
   [Intensity scaling](../cli/convert.md#intensity-scaling).
-
-## Known issues
-
-- `brkraw init --yes` changes your shell file (see above); a quieter option
-  is planned.
 
 ## Shared context maps
 

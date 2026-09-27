@@ -118,6 +118,16 @@ def test_info_reads_the_session_list(study, monkeypatch, capsys):
     assert main(["info", str(study)]) == 0
 
 
+def test_info_scan_ids_with_commas(study, capsys):
+    assert main(["info", str(study), "--scope", "scan", "-s", "3,1"]) == 0
+    out = capsys.readouterr().out
+    assert "RARE" in out and "FLASH" in out
+
+
+def test_info_bad_scan_id_text(study):
+    assert main(["info", str(study), "-s", "x"]) == 2
+
+
 def test_convert_reads_every_session_scan_id(study, monkeypatch, tmp_path):
     monkeypatch.setenv("BRKRAW_SCAN_ID", "1,3")
     out = tmp_path / "out"

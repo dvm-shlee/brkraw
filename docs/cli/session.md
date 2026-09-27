@@ -113,7 +113,6 @@ Supported keys include:
 - OVERRIDE_SUBJECT_TYPE, OVERRIDE_SUBJECT_POSE
 - XYZ_UNITS, T_UNITS
 - HEADER
-- FORMAT
 
 Notes:
 
@@ -178,12 +177,16 @@ If nothing is set:
 
 ## Note on BRKRAW_SCAN_ID
 
-`BRKRAW_SCAN_ID` is stored as a comma-separated string.
-Different commands may interpret it differently:
+`BRKRAW_SCAN_ID` is stored as a comma-separated string. Every command reads it
+with the same rule as its own `-s`:
 
-- `brkraw info` treats it as a list of scan IDs.
-- `brkraw convert` uses only the first scan ID when `--scan-id` is omitted.
-- `brkraw params` expects a single scan ID; set `-s/--scan-id` explicitly if needed.
+- Commands that take several scans (`brkraw info`, `brkraw convert`) use every
+  scan ID in it.
+- `brkraw params` searches one scan: `BRKRAW_SCAN_ID` must hold one scan ID,
+  several are an error (give one with `-s`).
+
+!!! note "Changed in 0.6.0rc1"
+    Before, `brkraw convert` used only the first scan ID of `BRKRAW_SCAN_ID`.
 
 ---
 

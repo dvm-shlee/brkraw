@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from typing import Iterator, List
+from typing import Iterator, List, Sequence
 
 from brkraw.apps.loader import BrukerLoader
 
@@ -28,6 +28,35 @@ def add_root_argument(parser) -> None:
     run (it wins over ``BRKRAW_CONFIG_HOME``).
     """
     parser.add_argument("--root", default=None, metavar="DIR", help=ROOT_HELP)
+
+
+def parse_scan_ids(values: Sequence[str]) -> List[int]:
+    """Read scan ids given on the command line or in a session variable.
+
+    One rule for every command: each string may hold several ids separated by
+    commas (``-s 3 4``, ``-s 3,4``, ``BRKRAW_SCAN_ID="3, 4"``). Empty pieces
+    are skipped, repeats are dropped (first order kept), and every piece must
+    be plain ASCII digits.
+
+    Raises:
+        ValueError: A piece is not a plain number, or no id was given.
+    """
+    collected: List[int] = []
+    seen = set()
+    for text in values:
+        for piece in text.split(","):
+            stripped = piece.strip()
+            if not stripped:
+                continue
+            if not (stripped.isascii() and stripped.isdecimal()):
+                raise ValueError("invalid scan id: %r" % stripped)
+            value = int(stripped)
+            if value not in seen:
+                collected.append(value)
+                seen.add(value)
+    if not collected:
+        raise ValueError("no scan id given")
+    return collected
 
 
 @contextmanager
@@ -75,7 +104,7 @@ def load(path, *, prefix: str = "Loading") -> BrukerLoader:
         return BrukerLoader(path)
 
 
-__all__ = ["spinner", "load"]
+__all__ = ["spinner", "load", "add_root_argument", "parse_scan_ids"]
 
 def __dir__() -> List[str]:
     return sorted(__all__)

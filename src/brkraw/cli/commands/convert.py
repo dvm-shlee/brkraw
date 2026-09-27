@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Dict, List, Tuple, Sequence, Union, cast, get_args
 
 import numpy as np
-from brkraw.cli.utils import add_root_argument, load
+from brkraw.cli.utils import add_root_argument, load, parse_scan_ids
 from brkraw.cli.hook_args import load_hook_args_yaml, merge_hook_args
 from brkraw.core import config as config_core
 from brkraw.core import layout as layout_core
@@ -67,22 +67,33 @@ def _convert_one(args: argparse.Namespace) -> int:
     if args.prefix is None:
         args.prefix = os.environ.get("BRKRAW_CONVERT_PREFIX")
 
-    # resolve scan/reco ids
-    id_sources = (
-        ("scan_id", "BRKRAW_SCAN_ID", True),
-        ("scan_id", "BRKRAW_CONVERT_SCAN_ID", False),
-        ("reco_id", "BRKRAW_RECO_ID", False),
-        ("reco_id", "BRKRAW_CONVERT_RECO_ID", False),
-    )
-    for attr, env_key, split_comma in id_sources:
-        if getattr(args, attr) is not None:
-            continue
+    # resolve scan/reco ids: -s takes several (one rule, cli.utils.parse_scan_ids),
+    # so the session variables give every id they hold
+    if args.scan_id is not None:
+        try:
+            args.scan_id = parse_scan_ids(args.scan_id)
+        except ValueError as exc:
+            logger.error("-s/--scan-id: %s", exc)
+            return 2
+    else:
+        for env_key in ("BRKRAW_SCAN_ID", "BRKRAW_CONVERT_SCAN_ID"):
+            value = os.environ.get(env_key)
+            if not value or not value.strip():
+                continue
+            try:
+                args.scan_id = parse_scan_ids([value])
+            except ValueError as exc:
+                logger.error("%s: %s", env_key, exc)
+                return 2
+            break
+    for env_key in ("BRKRAW_RECO_ID", "BRKRAW_CONVERT_RECO_ID"):
+        if args.reco_id is not None:
+            break
         value = os.environ.get(env_key)
         if not value:
             continue
-        text = value.split(",")[0] if split_comma else value
         try:
-            setattr(args, attr, int(text))
+            args.reco_id = int(value)
         except ValueError:
             logger.error("Invalid %s: %s", env_key, value)
             return 2
@@ -231,16 +242,47 @@ def _convert_one(args: argparse.Namespace) -> int:
         return 2
     
     batch_all = args.scan_id is None
-    if batch_all and args.output and not output_is_file and not args.output.endswith(os.sep):
+    # two or more scans (every scan, or -s 3 4 ...): the output is a folder
+    several = batch_all or len(args.scan_id) > 1
+    if several and args.output and not output_is_file and not args.output.endswith(os.sep):
         args.output = f"{args.output}{os.sep}"
-    if batch_all and output_is_file:
-        logger.error("When omitting --scan-id, --output must be a directory.")
+    if several and output_is_file:
+        if batch_all:
+            logger.error("When omitting --scan-id, --output must be a folder.")
+        else:
+            logger.error("With two or more scan ids, --output must be a folder.")
         return 2
 
-    scan_ids = list(loader.avail.keys()) if batch_all else [args.scan_id]
+    scan_ids = list(loader.avail.keys()) if batch_all else list(args.scan_id)
     if not scan_ids:
         logger.error("No scans available for conversion.")
         return 2
+    if not batch_all:
+        # scans named with -s: check them all before anything is written (BRK-0040 2)
+        unknown = [sid for sid in scan_ids if sid not in loader.avail]
+        if unknown:
+            logger.error(
+                "No scan %s in this dataset (available: %s); nothing was written.",
+                ", ".join(str(s) for s in unknown),
+                ", ".join(str(s) for s in loader.avail) or "none",
+            )
+            return 2
+        if args.reco_id is not None:
+            lacking = []
+            for sid in scan_ids:
+                scan = loader.get_scan(sid)
+                recos = list(scan.avail.keys())
+                if not recos and getattr(scan, "_converter_hook", None):
+                    continue  # a converter hook without recos decides for itself
+                if args.reco_id not in recos:
+                    lacking.append(f"scan {sid} (recos: {', '.join(str(r) for r in recos) or 'none'})")
+            if lacking:
+                logger.error(
+                    "reco %s is missing in %s; nothing was written.",
+                    args.reco_id,
+                    "; ".join(lacking),
+                )
+                return 2
 
     root = None
     layout_entries = config_core.layout_entries(root=root)
@@ -340,11 +382,11 @@ def _convert_one(args: argparse.Namespace) -> int:
                             nii = loader.convert(scan_id, reco_id=reco_id, **convert_kwargs, **selection)
                     except Exception as exc:
                         logger.error("Conversion failed for scan %s reco %s: %s", scan_id, reco_id, exc)
-                        if not batch_all and args.reco_id is not None:
+                        if not several and args.reco_id is not None:
                             return 2
                         continue
                     if nii is None:
-                        if not batch_all and args.reco_id is not None:
+                        if not several and args.reco_id is not None:
                             logger.error("No NIfTI output generated for scan %s reco %s.", scan_id, reco_id)
                             return 2
                         continue
@@ -385,7 +427,7 @@ def _convert_one(args: argparse.Namespace) -> int:
                             reco_id=reco_id,
                             **layout_kwargs,
                         )
-                    if batch_all and args.prefix:
+                    if several and args.prefix:
                         candidate_base_name = f"{candidate_base_name}_scan-{scan_id}"
                     if args.reco_id is None and len(reco_ids) > 1:
                         candidate_base_name = f"{candidate_base_name}_reco-{reco_id}"
@@ -723,7 +765,7 @@ def _convert_with_map_template(
         item["path"] = out_dir / f"{name}{ext}"
 
     # 3) convert and write
-    strict = args.scan_id is not None and args.reco_id is not None
+    strict = args.scan_id is not None and len(args.scan_id) == 1 and args.reco_id is not None
     total_written = 0
     for group in groups:
         scan_id, reco_id = group["scan_id"], group["reco_id"]
@@ -1190,8 +1232,12 @@ def _add_convert_args(
         selection.add_argument(
             "-s",
             "--scan-id",
-            type=int,
-            help="Scan id to convert.",
+            nargs="+",
+            metavar="ID",
+            help=(
+                "Scan id(s) to convert, for example -s 3 or -s 3 4 5 or -s 3,4,5 "
+                "(all scans when omitted). With two or more, --output must be a folder."
+            ),
         )
         selection.add_argument(
             "-r",
