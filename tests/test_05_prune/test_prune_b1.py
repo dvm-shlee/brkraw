@@ -98,7 +98,7 @@ def test_fix2_scan_rule_keeps_study_level_files(tmp_path):
     assert not any(n.startswith("1/") for n in names)
 
 
-def test_fix2_reco_rule_applies_only_below_pdata(tmp_path):
+def test_fix2_level_rule_applies_only_to_paths_with_a_folder_at_that_level(tmp_path):
     import shutil
 
     study = _study(tmp_path)

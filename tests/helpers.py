@@ -91,6 +91,8 @@ def make_synthetic_study(
     frames: Optional[Dict[int, List[Tuple[str, int]]]] = None,
     packs: Optional[Dict[int, int]] = None,
     slopes: Optional[Dict[int, List[float]]] = None,
+    offsets: Optional[Dict[int, List[float]]] = None,
+    depth: Optional[Dict[int, int]] = None,
 ) -> Path:
     """Write a small ParaVision-like study folder at ``root`` and return it.
 
@@ -110,10 +112,14 @@ def make_synthetic_study(
     ``packs`` maps scan id -> number of slice packs (one slice each, an
     ``FG_SLICE`` group in front of the frame groups, unless ``frames`` places
     ``("FG_SLICE", n)`` itself). ``slopes`` maps scan id
-    -> the VisuCoreDataSlope values to write (VisuCoreDataOffs gets as many 0).
+    -> the VisuCoreDataSlope values to write (VisuCoreDataOffs gets as many 0,
+    unless ``offsets`` gives them). ``depth`` maps scan id -> z size of a 3D
+    scan (VisuCoreDim 3, 4 x 4 x depth per frame, no slice frame group).
     """
     packs = packs or {}
     slopes = slopes or {}
+    offsets = offsets or {}
+    depth = depth or {}
     frames = frames or {}
     scans = scans or {1: "FLASH", 3: "RARE"}
     m = SYNTH_MARKERS
@@ -187,10 +193,17 @@ def make_synthetic_study(
             ("PVM_SPackArrSliceGap", f"( {n_packs} )\n" + " ".join(["0"] * n_packs)),
             ("PVM_SliceThick", "1"),
         ]
-        visu = [
+        nz = int(depth.get(sid, 0))
+        core = [
+            ("VisuCoreDim", "3"),
+            ("VisuCoreSize", f"( 3 )\n4 4 {nz}"),
+            ("VisuCoreDimDesc", "( 3 )\nspatial spatial spatial"),
+        ] if nz else [
             ("VisuCoreDim", "2"),
             ("VisuCoreSize", "( 2 )\n4 4"),
             ("VisuCoreDimDesc", "( 2 )\nspatial spatial"),
+        ]
+        visu = core + [
             ("VisuCoreFrameCount", str(n_frames)),
             ("VisuCoreFrameType", f"( {n_frames} )\n" + " ".join(["MAGNITUDE_IMAGE"] * n_frames)),
             ("VisuCoreOrientation", f"( {n_frames}, 9 )\n" + " ".join(["1 0 0 0 1 0 0 0 1"] * n_frames)),
@@ -199,7 +212,7 @@ def make_synthetic_study(
             ("VisuSubjectPosition", "Head_Supine"),
             ("VisuCoreWordType", "_16BIT_SGN_INT"),
             ("VisuCoreByteOrder", "littleEndian"),
-            ("VisuCoreExtent", "( 2 )\n20 20"),
+            ("VisuCoreExtent", f"( 3 )\n20 20 {nz}" if nz else "( 2 )\n20 20"),
             ("VisuSubjectName", _s(m["name"])),
             ("VisuSubjectId", _s(m["subject_id"])),
             ("VisuSubjectBirthDate", _s(m["birth"])),
@@ -219,11 +232,12 @@ def make_synthetic_study(
             ("VisuAcqProtocol", _s(f"{method}_proto")),
             ("VisuExperimentNumber", str(sid)),
         ]
-        if sid in slopes:
-            vals = [float(v) for v in slopes[sid]]
+        if sid in slopes or sid in offsets:
+            vals = [float(v) for v in slopes.get(sid, [1.0])]
+            offs = [float(v) for v in offsets.get(sid, [0.0] * len(vals))]
             visu += [
                 ("VisuCoreDataSlope", f"( {len(vals)} )\n" + " ".join(repr(v) for v in vals)),
-                ("VisuCoreDataOffs", f"( {len(vals)} )\n" + " ".join(["0"] * len(vals))),
+                ("VisuCoreDataOffs", f"( {len(offs)} )\n" + " ".join(repr(v) for v in offs)),
             ]
         if groups:
             desc = " ".join(f"({size}, <{name}>, <>, 0, 0)" for name, size in groups)
@@ -252,7 +266,7 @@ def make_synthetic_study(
             _jcamp(title, m["owner"], f"{base}/{sid}/pdata/1/procs", [("PROC_x", _s(m["owner"]))]),
             encoding="utf-8",
         )
-        count = 16 * n_frames
+        count = 16 * max(nz, 1) * n_frames
         (pdir / "2dseq").write_bytes(struct.pack(f"<{count}h", *range(count)))
     return root
 

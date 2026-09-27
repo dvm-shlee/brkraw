@@ -138,3 +138,81 @@ def test_get_dataobj_stays_raw_with_per_frame_slopes(tmp_path):
     data = np.asarray(_raw(st, 5))
     assert data.dtype == np.int16
     assert np.array_equal(data.reshape(-1, order="F"), np.arange(48))
+
+
+# ---------------------------------------------------------------------------
+# BRK-0036 layout rule: count vs slice packs first, then products of the
+# VisuFGOrderDesc axes from the back; only exactly equal values merge; no
+# match -> warning, no scaling.
+# ---------------------------------------------------------------------------
+
+
+def _mem(study: Path, scan_id: int):
+    """Converted images written and read back (an in-memory image ignores its header slope)."""
+    nii = brkraw.load(str(study)).convert(scan_id, reco_id=1)
+    imgs = list(nii) if isinstance(nii, tuple) else [nii]
+    out = []
+    for k, img in enumerate(imgs):
+        path = study.parent / f"mem-{scan_id}-{k}.nii"
+        img.to_filename(str(path))
+        out.append(nib.load(str(path)))
+    return out
+
+
+def test_near_equal_values_are_not_merged(tmp_path):
+    st = make_synthetic_study(tmp_path / "s", pv="360.3.3", scans={4: "RARE"}, packs={4: 2},
+                              slopes={4: [1.0, 1.000005]})
+    packs = _raw(st, 4)
+    imgs = _mem(st, 4)
+    for p, scale in enumerate((1.0, 1.000005)):
+        assert np.allclose(np.asarray(imgs[p].get_fdata()), np.asarray(packs[p], dtype=float) * scale,
+                           rtol=1e-7, atol=0)
+
+
+def test_3d_with_z_size_equal_to_frame_count_is_scaled_per_frame(tmp_path):
+    st = make_synthetic_study(tmp_path / "s", pv="360.3.3", scans={6: "FLASH3D"},
+                              frames={6: [("FG_CYCLE", 3)]}, depth={6: 3}, slopes={6: [1.0, 2.0, 3.0]})
+    raw = np.asarray(_raw(st, 6), dtype=float)
+    assert raw.shape == (4, 4, 3, 3)
+    out = np.asarray(_mem(st, 6)[0].get_fdata())
+    assert np.allclose(out, raw * np.array([1.0, 2.0, 3.0]))
+
+
+def test_per_frame_offsets(tmp_path):
+    st = make_synthetic_study(tmp_path / "s", pv="360.3.3", scans={5: "EPI"}, frames={5: [("FG_CYCLE", 3)]},
+                              slopes={5: [1.0, 2.0, 3.0]}, offsets={5: [10.0, 20.0, 30.0]})
+    raw = np.asarray(_raw(st, 5), dtype=float)
+    out = np.asarray(_mem(st, 5)[0].get_fdata())
+    assert np.allclose(out, raw * np.array([1.0, 2.0, 3.0]) + np.array([10.0, 20.0, 30.0]))
+
+
+def test_values_vary_along_the_trailing_axes(tmp_path):
+    # FG order echo 2, cycle 3; 3 values -> one per cycle, same for both echoes
+    st = make_synthetic_study(tmp_path / "s", pv="360.3.3", scans={9: "EPI"},
+                              frames={9: [("FG_ECHO", 2), ("FG_CYCLE", 3)]}, slopes={9: [1.0, 2.0, 3.0]})
+    raw = np.asarray(_raw(st, 9), dtype=float)  # (4, 4, 1, 2, 3)
+    out = np.asarray(_mem(st, 9)[0].get_fdata())
+    assert np.allclose(out, raw * np.array([1.0, 2.0, 3.0]).reshape(1, 1, 1, 1, 3))
+
+
+def test_no_matching_layout_warns_and_applies_no_scaling(tmp_path, caplog):
+    import logging
+
+    st = make_synthetic_study(tmp_path / "s", pv="360.3.3", scans={5: "EPI"}, frames={5: [("FG_CYCLE", 3)]},
+                              slopes={5: [1.0, 2.0, 3.0, 4.0]})
+    raw = np.asarray(_raw(st, 5), dtype=float)
+    with caplog.at_level(logging.WARNING):
+        out = np.asarray(_mem(st, 5)[0].get_fdata())
+    assert np.array_equal(out, raw)
+    assert "VisuCoreDataSlope" in caplog.text and "not applied" in caplog.text
+
+
+def test_pack_count_is_checked_first(tmp_path):
+    # 3 slice packs of one slice x 3 cycles; 3 values match both the pack count and the
+    # trailing cycle axis: the rule checks slice packs first (Park's proposal for the tie)
+    st = make_synthetic_study(tmp_path / "s", pv="360.3.3", scans={7: "EPI"}, frames={7: [("FG_CYCLE", 3)]},
+                              packs={7: 3}, slopes={7: [1.0, 2.0, 3.0]})
+    packs = _raw(st, 7)
+    imgs = _mem(st, 7)
+    for p, scale in enumerate((1.0, 2.0, 3.0)):
+        assert np.allclose(np.asarray(imgs[p].get_fdata()), np.asarray(packs[p], dtype=float) * scale)
