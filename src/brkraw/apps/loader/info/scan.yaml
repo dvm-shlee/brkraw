@@ -10,7 +10,7 @@ Method:
     - file: acqp
       key: ACQ_method
   transform: strip_jcamp_string
-MethodName:
+MethodBase:
   sources:
     - file: acqp
       key: ACQ_method

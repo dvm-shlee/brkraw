@@ -21,7 +21,7 @@ def strip_method_prefix(value: Optional[str]) -> Optional[str]:
     """Method name without the vendor prefix: ``Bruker:EPI`` -> ``EPI``, ``User:zte`` -> ``zte``.
 
     Text without a colon is returned unchanged. ``Method`` keeps the original
-    value; this gives the separate ``MethodName`` item (BRK-0034 1).
+    value; this gives the separate ``MethodBase`` item (BRK-0034 1).
     """
     if value is None:
         return None
