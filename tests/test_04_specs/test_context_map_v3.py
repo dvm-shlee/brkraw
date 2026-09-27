@@ -129,10 +129,11 @@ def _write(folder: Path, name: str, text: str) -> Path:
 
 @pytest.fixture
 def installed_base():
-    specs = config_core.paths().specs_dir
-    specs.mkdir(parents=True, exist_ok=True)
-    (specs / "bids_rodent_base.yaml").write_text(BASE_MAP, encoding="utf-8")
-    return specs
+    # installed shared maps live in the config folder's context_maps/ (BRK-0038)
+    folder = config_core.paths().context_maps_dir
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "bids_rodent_base.yaml").write_text(BASE_MAP, encoding="utf-8")
+    return folder
 
 
 # ---------------------------------------------------------------------------

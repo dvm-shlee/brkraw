@@ -381,11 +381,11 @@ def _resolve_include(item: Any, base_dir: Path, name: str) -> Path:
             return path
     else:
         raise ContextMapError(f"{name}: include items are file paths, installed names or {{use, version}}")
-    from ...apps.addon.dependencies import resolve_spec_reference
+    from ...apps.addon.dependencies import resolve_context_map_reference
 
     label = use + (f" version {version}" if version else "")
     try:
-        return Path(resolve_spec_reference(use, category=CATEGORY, version=None if version is None else str(version)))
+        return Path(resolve_context_map_reference(use, version=None if version is None else str(version)))
     except (FileNotFoundError, ValueError) as exc:
         raise ContextMapError(f"{name}: context map include not found: {label} ({exc})") from exc
 

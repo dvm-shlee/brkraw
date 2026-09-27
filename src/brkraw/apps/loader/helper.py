@@ -316,6 +316,76 @@ def _frame_scaling(
     return FrameScaling("apply", packs)
 
 
+def _layout_warnings(scan: "ScanLoader", reco_id: int) -> None:
+    """BRK-0037 safeguards: warn when the slice-pack split or a scaling shape looks inconsistent.
+
+    1. With more than one slice pack, the frames assigned to each pack (a
+       contiguous split along FG_SLICE by the method's slices per pack) should
+       share one orientation (VisuCoreOrientation).
+    2. A slope or offset stored with two or more dimensions should list the
+       trailing frame axes slowest first (JCAMP stores the last dimension
+       fastest); values are always read in stored order.
+    Warnings only; conversion is unchanged.
+    """
+    from ...resolver.helpers import get_reco
+    from ...resolver.shape import resolve_frame_group
+
+    try:
+        visu_pars = get_file(get_reco(scan, reco_id), "visu_pars")
+    except Exception:
+        return
+    fg = resolve_frame_group(visu_pars) or {}
+    fg_shape = [int(n) for n in fg.get("shape", [])]
+    fg_ids = [str(i) for i in fg.get("id", [])]
+    label = f"scan {getattr(scan, 'scan_id', '?')} reco {reco_id}"
+
+    for key in ("VisuCoreDataSlope", "VisuCoreDataOffs"):
+        value = visu_pars.get(key)
+        shape = tuple(int(n) for n in np.shape(value)) if value is not None else ()
+        if len(shape) >= 2:
+            tail = fg_shape[-len(shape):] if len(shape) <= len(fg_shape) else None
+            if tail is None or shape != tuple(reversed(tail)):
+                logger.warning(
+                    "%s: %s is stored with shape %s, which does not match the frame axes %s %s; "
+                    "its values are read in stored order.",
+                    label, key, shape, fg_ids, fg_shape,
+                )
+
+    affine_info = scan.affine_info.get(reco_id) if getattr(scan, "affine_info", None) else None
+    if not affine_info:
+        return
+    num_slices = [int(n) for n in affine_info["num_slices"]]
+    if len(num_slices) < 2:
+        return
+    names = [i.strip("<>") for i in fg_ids]
+    if "FG_SLICE" not in names:
+        return
+    k = names.index("FG_SLICE")
+    if sum(num_slices) != fg_shape[k]:
+        logger.warning(
+            "%s: the slice packs hold %s slices but FG_SLICE has %s; the slice pack split may not match the data.",
+            label, sum(num_slices), fg_shape[k],
+        )
+        return
+    orient = visu_pars.get("VisuCoreOrientation")
+    n_frames = int(np.prod(fg_shape)) if fg_shape else 0
+    if orient is None or np.size(orient) != 9 * n_frames:
+        return
+    orient = np.asarray(orient, dtype=float).reshape(n_frames, 9)
+    frame_idx = np.arange(n_frames).reshape(fg_shape, order="F")
+    by_slice = np.moveaxis(frame_idx, k, 0).reshape(fg_shape[k], -1)
+    start = 0
+    for p, count in enumerate(num_slices, start=1):
+        frames = by_slice[start:start + count].ravel()
+        if not np.allclose(orient[frames], orient[frames[0]], atol=1e-6):
+            logger.warning(
+                "%s: the frames of slice pack %s do not share one orientation; the slice pack split "
+                "may not match the frame order.",
+                label, p,
+            )
+        start += count
+
+
 def resolve_data_and_affine(
     scan: "Scan",
     reco_id: Optional[int] = None,
@@ -1043,6 +1113,7 @@ def convert(
     converter_func = getattr(self, "converter_func", None)
     scaling_applied = False
     if not isinstance(converter_func, ConvertType):
+        _layout_warnings(self, resolved_reco_id)
         frame_scaling = _frame_scaling(
             self,
             resolved_reco_id,

@@ -43,14 +43,16 @@ def root(tmp_path, monkeypatch):
     return cfg
 
 
-def test_addon_add_installs_a_context_map_into_context_maps(tmp_path, root, capsys):
+def test_addon_add_installs_a_context_map_into_context_maps(tmp_path, root, capsys, caplog):
+    import logging
+
     assert main(["addon", "add", str(_base(tmp_path))]) == 0
     assert (root / "context_maps" / "lab_base-1.0.0.yaml").is_file()
     assert main(["config", "path", "context_maps"]) == 0
     assert capsys.readouterr().out.strip().endswith("context_maps")
-    assert main(["addon", "list"]) == 0
-    out = capsys.readouterr().out
-    assert "lab_base" in out and "context" in out.lower()
+    with caplog.at_level(logging.INFO):              # addon list prints its tables through logging
+        assert main(["addon", "list"]) == 0
+    assert "lab_base" in caplog.text and "Context Maps" in caplog.text
 
 
 def test_include_by_name_finds_the_installed_map(tmp_path, root):
