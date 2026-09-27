@@ -230,6 +230,11 @@ def test_old_deid4share_spec_is_gone(tmp_path, cwd):
 def test_example_spec_suggestions_are_comments(tmp_path):
     from importlib import resources
 
+    try:
+        resources.files  # type: ignore[attr-defined]
+    except AttributeError:  # Python 3.8
+        import importlib_resources as resources  # type: ignore[no-redef]
+
     text = resources.files("brkraw.default").joinpath("pruner_specs/anonymize.yaml").read_text(encoding="utf-8")
     spec = yaml.safe_load(text)
     assert spec["__meta__"]["name"] == "anonymize"

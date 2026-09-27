@@ -12,6 +12,11 @@ from importlib import resources
 from pathlib import Path
 from typing import Dict, List, Optional
 
+try:
+    resources.files  # type: ignore[attr-defined]
+except AttributeError:  # pragma: no cover - fallback for Python 3.8
+    import importlib_resources as resources  # type: ignore[assignment,no-redef]
+
 import yaml
 
 from brkraw.cli.utils import add_root_argument, spinner
