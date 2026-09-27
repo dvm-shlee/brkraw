@@ -90,8 +90,10 @@ def test_plugins_come_after_core_commands(monkeypatch):
     monkeypatch.setattr(cli_main, "_iter_entry_points", fake)
     _, subparsers = build_parser()
     choices = list(subparsers.choices)
-    assert choices[-1] == "zzplugin"
-    assert choices.index("hook") < choices.index("zzplugin")
+    core = [name for name, _ in cli_main.CORE_COMMANDS]
+    # other installed plugins (for example brkraw-cli's example command) may also follow
+    assert choices[:len(core)] == core
+    assert choices.index("zzplugin") >= len(core)
 
 
 # ---------------------------------------------------------------------------
