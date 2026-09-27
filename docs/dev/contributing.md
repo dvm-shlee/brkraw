@@ -114,22 +114,21 @@ independent plugins.
 
 ## Layout design and data structure
 
-The layout system constructs output paths and filenames from metadata using one
-of the following mechanisms:
+brkraw has two independent layouts:
 
-- `layout_entries`: structured entries with `key`, `entry`, and `sep`
-- `layout_template`: string templates with `{Key}` placeholders
+- the config layout in `config.yaml` (`output.layout_entries` with `key`,
+  `entry`, `sep`, or `output.layout_template` with `{Key}` tags);
+- a context map's own `__meta__.layout_template`, which uses namespace tags and
+  `utils` values and is used instead of the config layout for that dataset.
 
-Defaults may be defined in `config.yaml` or in `context_map.__meta__`, and can be
-overridden at runtime via the API or CLI.
-
-See `extensions/layout.md` for details.
+See [Layout and naming](../extensions/layout.md) and
+[Context maps](../extensions/context-map.md).
 
 ---
 
 ## Core development policy
 
-Core changes are limited to maintaining compatibility with Paravision layouts
+Core changes are limited to maintaining compatibility with ParaVision layouts
 and metadata conventions. All other customization should be implemented as
 addons (rules, specs, transforms, context maps) or external plugins.
 

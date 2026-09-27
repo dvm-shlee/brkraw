@@ -334,7 +334,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
         dest="output",
         help=(
             "Output zip (default: ./pruned_<study>.zip, or "
-            "./pruned_anon_<subject>_<study-id>.zip with --anonymize)."
+            "./pruned_anon_<subject>_<study-id>.zip with --anonymize or a spec with anonymize: true)."
         ),
     )
     output_group.add_argument(

@@ -126,4 +126,4 @@ Write to a file:
 brkraw hook preset <hook-entrypoint> -o hook_args.yaml
 ```
 
-You can pass the generated file to `brkraw convert` / `brkraw convert-batch` via `--hook-args-yaml`.
+You can pass the generated file to `brkraw convert` (also with `--batch`) via `--hook-args-yaml`.

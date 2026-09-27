@@ -4,35 +4,23 @@ Manage BrkRaw configuration locations and `config.yaml`.
 
 Use this command to:
 
-- create or reset config roots,
 - inspect resolved configuration,
 - set or unset individual keys,
-- open `config.yaml` in your preferred editor.
+- open `config.yaml` in your preferred editor,
+- reset `config.yaml` to the defaults.
 
 By default, BrkRaw stores configuration under `~/.brkraw`, or you can override it
 with `BRKRAW_CONFIG_HOME` or `--root`.
 
+The folder is created by [`brkraw init`](init.md).
+
+!!! note "Changed in 0.6.0"
+    `brkraw config init` was removed; use `brkraw init`. `config path` now
+    also knows `pruner_specs`.
+
 ---
 
 ## Subcommands
-
-### config init
-
-Create the config folders and optionally create `config.yaml`.
-
-```bash
-brkraw config init
-```
-
-Options:
-
-- `--no-config`  
-  Do not create `config.yaml`.
-
-- `--no-exist-ok`  
-  Fail if the config root already exists.
-
----
 
 ### config show
 
@@ -59,6 +47,7 @@ brkraw config path root
 brkraw config path config
 brkraw config path rules
 brkraw config path specs
+brkraw config path pruner_specs
 brkraw config path transforms
 brkraw config path cache
 ```

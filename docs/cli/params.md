@@ -1,6 +1,6 @@
 # params
 
-Search Paravision parameter files for a key match and print results as YAML.
+Search ParaVision parameter files for a key match and print results as YAML.
 
 This command is useful for quick inspection and debugging before conversion,
 or when writing/modifying specs and rules.
@@ -35,13 +35,13 @@ Parameter key to search for (required unless `BRKRAW_PARAM_KEY` is set).
 
 ### -s, --scan-id
 
-Scan id to search. Required for scan-level and reco-level searches.
+Scan ID to search. Required for scan-level and reco-level searches.
 
 If omitted, BrkRaw will try to use `BRKRAW_SCAN_ID` (first value when comma-separated).
 
 ### -r, --reco-id
 
-Reco id to search within a scan.
+Reco ID to search within a scan.
 
 If omitted, BrkRaw will try to use `BRKRAW_RECO_ID`.
 

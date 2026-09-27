@@ -1,69 +1,54 @@
 # init
 
-Initialize a BrkRaw config root and (optionally) install the default addon set.
-
-This command is a convenience wrapper around `brkraw config init` plus optional
-extras (default addons, shell helpers).
-
----
-
-## Usage
+Create the brkraw config folder, and optionally install the default specs and
+rules and the shell helpers.
 
 ```bash
-brkraw init
+brkraw init                              # asks each step
+brkraw init --install-default --yes      # no questions (see the note on --yes)
+brkraw init --root /path/to/config       # another config folder
 ```
 
----
+The config folder is `BRKRAW_CONFIG_HOME`, else `~/.brkraw`. Every command
+also takes `--root DIR`.
+
+!!! note "Changed in 0.6.0"
+    `brkraw config init` was removed; `brkraw init` is the one command that
+    creates the config folder.
+
+## What it does
+
+Asked step by step without `--yes`:
+
+1. create the config folder and `config.yaml` (you can change the values);
+2. install the default specs, rules, pruner specs and transforms
+   (`--install-default`), needed for sidecar metadata (`-c`);
+3. add the shell helpers `brkraw-set` and `brkraw-unset` to your shell file.
+
+!!! warning "`--yes` also changes your shell file"
+    With `--yes`, brkraw writes `config.yaml` with the default values and,
+    when your shell is zsh or bash, **appends the shell helpers to
+    `~/.zshrc` or `~/.bashrc`** (once; a second run sees them and does
+    nothing). This is also true for `--yes --install-default`. To keep your
+    shell file unchanged, run `brkraw init` without `--yes` and answer "no"
+    to the shell helper question.
 
 ## Options
 
-### --root
+| Option | Meaning |
+| --- | --- |
+| `--root ROOT` | Config folder to create or use. |
+| `--no-exist-ok` | Stop if the folder already exists. |
+| `--config` | Create or replace `config.yaml` only (asks for the values). |
+| `--install-default` | Install the default specs, rules, pruner specs and transforms. |
+| `--shell-rc FILE` | Append the shell helpers to this file. |
+| `--yes` | No questions; use the defaults (see the warning above). |
 
-Override the config root directory (default: `BRKRAW_CONFIG_HOME` or `~/.brkraw`).
-
-```bash
-brkraw init --root /path/to/config
-```
-
-### --no-exist-ok
-
-Fail if the root directory already exists.
-
-```bash
-brkraw init --no-exist-ok
-```
-
-### --config
-
-Create or replace `config.yaml` only (does not install default addons or shell helpers).
+## Shell helpers
 
 ```bash
-brkraw init --config
+brkraw-set -p /path/to/study -s 3    # same as: eval "$(brkraw session set -p /path/to/study -s 3)"
+brkraw-unset                         # clear the session defaults
 ```
 
-### --install-default
-
-Install the default bundled addon set (specs/rules/pruner specs/transforms) into the config root.
-
-```bash
-brkraw init --install-default
-```
-
-### --shell-rc
-
-Append shell helper functions to a shell rc file (defaults to `~/.zshrc` or `~/.bashrc`).
-
-This enables convenient wrappers like `brkraw-set` / `brkraw-unset` for setting
-session defaults.
-
-```bash
-brkraw init --shell-rc ~/.zshrc
-```
-
-### --yes
-
-Skip prompts and use defaults.
-
-```bash
-brkraw init --yes
-```
+See [session](session.md).
