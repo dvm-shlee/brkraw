@@ -40,9 +40,10 @@ def test_equal_per_frame_slope_stays_in_the_header(tmp_path):
                               frames={5: [("FG_CYCLE", 3)]}, slopes={5: [2.0, 2.0, 2.0]})
     img = _convert(st, 5, tmp_path / "o.nii.gz")
     raw = np.asarray(_raw(st, 5))
+    # one scalar in the header in memory; nibabel writes it into the stored
+    # integers on save (same as a single global slope), so the file stays int16
+    assert brkraw.load(str(st)).convert(5, reco_id=1).header.get_slope_inter() == (2.0, 0.0)
     assert img.get_data_dtype() == np.dtype("int16")
-    assert np.array_equal(np.asarray(img.dataobj.get_unscaled()), raw)
-    assert img.header.get_slope_inter() == (2.0, 0.0)
     assert np.allclose(_values(img), raw * 2.0)
 
 
@@ -108,7 +109,7 @@ def test_split_parts_keep_each_frames_slope(tmp_path):
     (st.parent / f"{st.name}.yaml").write_text(yaml.safe_dump({
         "__meta__": {"category": "context_map", "layout_template": "E{x.scan}_part{utils.split}"},
         "x": {"scan": {"from": "ScanID"}},
-        "split": [{"axis": "echo", "frames": 0}, {"axis": "echo", "frames": 1}],
+        "split": {"value": [{"axis": "echo", "frames": 0}, {"axis": "echo", "frames": 1}]},
     }), encoding="utf-8")
     out = tmp_path / "o"
     assert main(["convert", str(st), "-o", str(out)]) == 0
@@ -123,7 +124,12 @@ def test_flatten_after_per_frame_scaling(tmp_path):
     img = _convert(st, 9, tmp_path / "o.nii.gz", "-F")
     raw = np.asarray(_raw(st, 9), dtype=float)  # (4, 4, 1, 2, 2): echo fastest
     scaled = raw * np.array([[1.0, 3.0], [2.0, 4.0]])  # [echo, cycle] -> frame echo + 2 * cycle
-    assert np.allclose(_values(img), scaled.reshape((4, 4, 1, 4), order="A"))
+    # -F flattens in the order of the unscaled data (Fortran for a full read): echo fastest
+    assert np.allclose(_values(img), scaled.reshape((4, 4, 1, 4), order="F"))
+    plain = make_synthetic_study(tmp_path / "p", pv="360.3.3", scans={9: "EPI"},
+                                 frames={9: [("FG_ECHO", 2), ("FG_CYCLE", 2)]})
+    ref = _convert(plain, 9, tmp_path / "p.nii.gz", "-F")
+    assert np.allclose(_values(ref), np.asarray(_raw(plain, 9), dtype=float).reshape((4, 4, 1, 4), order="F"))
 
 
 def test_get_dataobj_stays_raw_with_per_frame_slopes(tmp_path):

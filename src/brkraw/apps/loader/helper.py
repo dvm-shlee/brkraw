@@ -124,6 +124,9 @@ def _normalize_pack_scaling(
 
     if raw.size == 0:
         raw = np.asarray([default], dtype=float)
+    if raw.size > 1 and np.allclose(raw, raw[0], equal_nan=True):
+        # equal values (for example one per frame) are one scalar (BRK-0035)
+        raw = raw[:1]
 
     normalized_pack_sizes = [int(size) for size in pack_sizes]
     total_slices = int(sum(normalized_pack_sizes))
@@ -152,8 +155,115 @@ def _normalize_pack_scaling(
 
     raise ValueError(
         f"{name} has {raw.size} values, expected 1 (global), "
-        f"{num_packs} (per-pack), or {total_slices} (per-slice)."
+        f"{num_packs} (per-pack), or {total_slices} (per-slice); "
+        "different per-frame values are applied by convert()."
     )
+
+
+def _scaling_vector(value: Any, default: float) -> np.ndarray:
+    if value is None:
+        return np.asarray([default], dtype=float)
+    raw = np.asarray(value, dtype=float).reshape(-1)
+    return raw if raw.size else np.asarray([default], dtype=float)
+
+
+def _frame_scaling(
+    scan: "ScanLoader",
+    reco_id: int,
+    *,
+    axis: Optional[Union[str, int]] = None,
+    frames: Optional[Union[int, List[int], str]] = None,
+    cycle_index: Optional[int] = None,
+    cycle_count: Optional[int] = None,
+) -> Optional[List[Tuple[np.ndarray, np.ndarray]]]:
+    """Per-pack (slope, offset) arrays for different per-frame scaling (BRK-0035, option C).
+
+    ParaVision gives ``VisuCoreDataSlope``/``VisuCoreDataOffs`` one value per
+    frame (a 2D slice or a 3D volume) in 2dseq frame order. When the values
+    differ and are not one per slice pack or per slice, they are laid out like
+    the data: reshaped to the frame axes in Fortran order (as 2dseq is read),
+    the same z-axis swap, the same legacy cycle block, the same slice-pack
+    split and the same ``axis``/``frames`` selection. The arrays broadcast
+    against each pack's data. None when no per-frame application is needed
+    (equal values, or the global/per-pack/per-slice cases handled in the header
+    path).
+    """
+    image_info = scan.image_info.get(reco_id)
+    affine_info = scan.affine_info.get(reco_id)
+    if image_info is None or affine_info is None:
+        return None
+    num_slices = [int(n) for n in affine_info["num_slices"]]
+    total_slices, num_packs = sum(num_slices), len(num_slices)
+    slope = _scaling_vector(image_info.get("slope"), 1.0)
+    offset = _scaling_vector(image_info.get("offset"), 0.0)
+
+    def per_frame(vec: np.ndarray) -> bool:
+        return (
+            vec.size > 1
+            and not np.allclose(vec, vec[0], equal_nan=True)
+            and vec.size not in (total_slices, num_packs)
+        )
+
+    if not (per_frame(slope) or per_frame(offset)):
+        return None
+
+    from ...resolver.shape import resolve as shape_resolve
+    from ...specs.context_map.output import pick_axis, select_frames
+
+    shape_info = shape_resolve(scan, reco_id=reco_id)
+    if not shape_info:
+        return None
+    shape = [int(n) for n in shape_info["shape"]]
+    n_frames = (slope if per_frame(slope) else offset).size
+    # leading image axes; the rest are frame axes (singleton axes do not change the order)
+    core = next((k for k in range(2, len(shape) + 1) if int(np.prod(shape[k:])) == n_frames), None)
+    if core is None:
+        raise ValueError(
+            f"per-frame scaling has {n_frames} values but the data has frames {shape[2:]} (shape {shape})."
+        )
+
+    def layout(vec: np.ndarray) -> np.ndarray:
+        if vec.size == 1 or np.allclose(vec, vec[0], equal_nan=True):
+            return np.full([1] * len(shape), float(vec[0]))
+        if vec.size != n_frames:
+            raise ValueError(
+                f"slope has {slope.size} and offset has {offset.size} values; per-frame scaling needs "
+                f"equal values or {n_frames} values for both."
+            )
+        return vec.reshape(shape[core:], order="F").reshape([1] * core + shape[core:])
+
+    arrays = [layout(slope), layout(offset)]
+
+    # legacy cycle block (cycles are the last axis, as in the 2dseq block read)
+    total_cycles = int(image_info.get("num_cycles") or 1)
+    if (cycle_index is not None or cycle_count is not None) and total_cycles > 1:
+        start = int(cycle_index or 0)
+        stop = None if cycle_count is None else start + int(cycle_count)
+        arrays = [a if a.shape[-1] == 1 else a[..., start:stop] for a in arrays]
+
+    shape_desc: List[str] = []
+    swapped = []
+    for arr in arrays:
+        out, shape_desc = image_resolver.ensure_3d_spatial_data(arr, shape_info)
+        swapped.append(out)
+
+    packs: List[Tuple[np.ndarray, np.ndarray]] = []
+    start = 0
+    for count in num_slices:
+        pair = []
+        for arr in swapped:
+            part = arr if arr.shape[2] == 1 else arr[:, :, start:start + count]
+            if frames is not None:
+                ax = pick_axis(shape_desc, axis)
+                if part.shape[ax] == 1:
+                    if isinstance(frames, int) and not isinstance(frames, bool):
+                        part = np.take(part, 0, axis=ax)
+                else:
+                    part, _ = select_frames(part, shape_desc, axis, frames)
+            pair.append(part)
+        packs.append((pair[0], pair[1]))
+        start += count
+    return packs
 
 
 def resolve_data_and_affine(
@@ -679,6 +789,7 @@ def get_nifti1image(
     xyz_units: XYZUNIT = "mm",
     t_units: TUNIT = "sec",
     override_header: Optional[Nifti1HeaderContents] = None,
+    scaling_applied: bool = False,
 ) -> ConvertedObj:
     """Return NIfTI image(s) for a reco.
 
@@ -688,6 +799,8 @@ def get_nifti1image(
         xyz_units: Spatial units for NIfTI header.
         t_units: Temporal units for NIfTI header.
         override_header: Optional header values to apply.
+        scaling_applied: The data objects already carry the slope/offset
+            (per-frame scaling, BRK-0035); the header gets slope 1, offset 0.
 
     Returns:
         Output object(s) supporting to_filename(). Returns None when required
@@ -712,8 +825,8 @@ def get_nifti1image(
             f"Slice-pack metadata mismatch: {len(pack_sizes)} pack sizes for {len(dataobjs)} data objects."
         )
 
-    raw_slope = image_info.get("slope")
-    raw_offset = image_info.get("offset")
+    raw_slope = 1.0 if scaling_applied else image_info.get("slope")
+    raw_offset = 0.0 if scaling_applied else image_info.get("offset")
     slope_packs = _normalize_pack_scaling(
         raw_slope,
         pack_sizes,
@@ -871,14 +984,40 @@ def convert(
         affines = (affines,)
     
     dataobjs = list(dataobjs)
+    # -F flattens like numpy order="A" on the data as read; keep that order after scaling
+    flatten_orders = [
+        "F" if (d.flags.f_contiguous and not d.flags.c_contiguous) else "C" for d in dataobjs
+    ]
+    # different per-frame slope/offset: apply to the data before flattening
+    # (BRK-0035 option C); converter hooks get the raw data as before
+    converter_func = getattr(self, "converter_func", None)
+    scaling_applied = False
+    if not isinstance(converter_func, ConvertType):
+        frame_scaling = _frame_scaling(
+            self,
+            resolved_reco_id,
+            axis=merged_kwargs.get("axis"),
+            frames=merged_kwargs.get("frames"),
+            cycle_index=merged_kwargs.get("cycle_index"),
+            cycle_count=merged_kwargs.get("cycle_count"),
+        )
+        if frame_scaling is not None:
+            if len(frame_scaling) != len(dataobjs):
+                raise ValueError(
+                    f"per-frame scaling has {len(frame_scaling)} slice packs, data has {len(dataobjs)}."
+                )
+            dataobjs = [
+                np.asarray(d, dtype=float) * s_arr + o_arr
+                for d, (s_arr, o_arr) in zip(dataobjs, frame_scaling)
+            ]
+            scaling_applied = True
     for i, dataobj in enumerate(dataobjs):
         if flatten_fg and dataobj.ndim > 4:
             spatial_shape = dataobj.shape[:3]
             flattened = int(np.prod(dataobj.shape[3:]))
-            dataobjs[i] = dataobj.reshape((*spatial_shape, flattened), order="A")
+            dataobjs[i] = dataobj.reshape((*spatial_shape, flattened), order=flatten_orders[i])
     dataobjs = tuple(dataobjs)
 
-    converter_func = getattr(self, "converter_func", None)
     if isinstance(converter_func, ConvertType):
         hook_call_kwargs = _filter_hook_kwargs(converter_func, convert_kwargs)
         logger.debug(
@@ -898,6 +1037,7 @@ def convert(
         **kwargs,
     }
     nifti1image_kwargs = _filter_hook_kwargs(get_nifti1image, nifti1image_kwargs)
+    nifti1image_kwargs["scaling_applied"] = scaling_applied
     return get_nifti1image(
         self,
         reco_id=resolved_reco_id,
