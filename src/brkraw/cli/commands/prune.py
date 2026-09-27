@@ -70,7 +70,8 @@ def cmd_prune(args: argparse.Namespace) -> int:
         except ValueError as exc:
             logger.error("%s", exc)
             return 2
-        anonymize = args.anonymize or _is_builtin_anonymize(spec_path)
+        # --anonymize, or a spec that declares it (anonymize: true), or the built-in spec
+        anonymize = args.anonymize or spec.get("anonymize") is True or _is_builtin_anonymize(spec_path)
     else:
         spec_path = None
         spec = {}

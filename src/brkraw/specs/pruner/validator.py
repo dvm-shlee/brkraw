@@ -113,6 +113,10 @@ def _validate_spec_minimal(spec: Mapping[str, Any]) -> List[str]:
     if root_name is not None and not isinstance(root_name, str):
         errors.append("spec.root_name: must be a string.")
 
+    anonymize = spec.get("anonymize")
+    if anonymize is not None and not isinstance(anonymize, bool):
+        errors.append("spec.anonymize: must be true or false.")
+
     headers = spec.get("jcamp_headers")
     if headers is not None:
         if not isinstance(headers, Mapping):

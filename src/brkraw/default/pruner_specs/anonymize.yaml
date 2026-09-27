@@ -14,6 +14,10 @@ __meta__:
 
 mode: "keep"
 
+# This spec anonymizes: the default output name uses the replacement IDs and the
+# .prune.yaml record leaves out the original input name (as with --anonymize).
+anonymize: true
+
 # Image files only. Add fid, rawdata.job0 and traj to keep raw data for
 # reconstruction.
 files: ["subject", "acqp", "method", "reco", "visu_pars", "2dseq"]
