@@ -283,6 +283,27 @@ def _convert_one(args: argparse.Namespace) -> int:
                     "; ".join(lacking),
                 )
                 return 2
+    elif args.reco_id is not None:
+        # every scan with -r: skip the scans without that reco and say which (BRK-0040)
+        keep = []
+        skipped = []
+        for sid in scan_ids:
+            scan = loader.get_scan(sid)
+            recos = list(scan.avail.keys())
+            if args.reco_id in recos or (not recos and getattr(scan, "_converter_hook", None)):
+                keep.append(sid)
+            else:
+                skipped.append(sid)
+        if not keep:
+            logger.error("reco %s is in no scan of this dataset; nothing was written.", args.reco_id)
+            return 2
+        if skipped:
+            logger.warning(
+                "reco %s is missing in scan %s; skipped (name scans with -s to stop instead).",
+                args.reco_id,
+                ", ".join(str(s) for s in skipped),
+            )
+        scan_ids = keep
 
     root = None
     layout_entries = config_core.layout_entries(root=root)
@@ -1374,7 +1395,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
     """
     convert_parser = subparsers.add_parser(
         "convert",
-        help="Convert a scan/reco to NIfTI.",
+        help="Convert scans to NIfTI (one, several or all; --batch for a folder of studies).",
     )
     convert_parser.add_argument(
         "path",

@@ -306,7 +306,7 @@ def _resolve_rule_target(target: str, *, category: Optional[str], rules_dir: Pat
 def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[name-defined]
     addon_parser = subparsers.add_parser(
         "addon",
-        help="Manage info specs and rules.",
+        help="Install and manage specs, rules, pruner specs and shared context maps.",
     )
     addon_parser.add_argument(
         "--root",
@@ -315,15 +315,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
     addon_parser.set_defaults(func=cmd_addon, parser=addon_parser)
     addon_sub = addon_parser.add_subparsers(dest="addon_command")
 
-    add_parser = addon_sub.add_parser("add", help="Install a spec or rule file.")
+    add_parser = addon_sub.add_parser(
+        "add", help="Install a spec, rule, pruner spec or shared context map file (and its transforms)."
+    )
     add_parser.add_argument("filename", help="Spec, rule, pruner spec or shared context map YAML.")
     add_parser.set_defaults(addon_func=cmd_add)
 
-    list_parser = addon_sub.add_parser("list", help="List installed specs and rules.")
+    list_parser = addon_sub.add_parser(
+        "list", help="List installed specs, rules, pruner specs, transforms and context maps."
+    )
     list_parser.set_defaults(addon_func=cmd_list)
 
-    rm_parser = addon_sub.add_parser("rm", help="Remove an installed spec or rule file.")
-    rm_parser.add_argument("filename", help="Spec/rule filename to remove.")
+    rm_parser = addon_sub.add_parser("rm", help="Remove an installed file (any kind; see --kind).")
+    rm_parser.add_argument("filename", help="Installed filename to remove.")
     rm_parser.add_argument(
         "--kind",
         choices=["spec", "pruner", "context_map", "rule", "transform"],
@@ -337,8 +341,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[na
     rm_parser.set_defaults(addon_func=cmd_rm)
 
 
-    edit_parser = addon_sub.add_parser("edit", help="Edit an installed spec or rule.")
-    edit_parser.add_argument("target", help="Spec/rule name or filename.")
+    edit_parser = addon_sub.add_parser("edit", help="Edit an installed file (any kind; see --kind).")
+    edit_parser.add_argument("target", help="Installed name or filename.")
     edit_parser.add_argument(
         "--kind",
         choices=["spec", "pruner", "context_map", "rule", "transform"],

@@ -1,13 +1,24 @@
 # hook
 
-Manage converter hook packages and their bundled addon assets (specs, rules, pruner specs, transforms).
+Register the files that converter hook packages ship (specs, rules, pruner
+specs, transforms, context maps) with brkraw. Two steps:
+
+```bash
+pip install brkraw-sordino       # 1. install the package itself
+brkraw hook install sordino      # 2. register its files with brkraw
+```
+
+`brkraw hook install` does not download or install the package; `pip` does.
+`brkraw hook uninstall` removes the registered files; `pip uninstall` removes
+the package.
 
 A converter hook is a Python package that exposes one or more entrypoints in the
 `brkraw.converter_hook` group. Hook packages can optionally ship addon files via a
 hook manifest (`brkraw_hook.yaml` / `brkraw_hook.yml`).
 
 !!! note "Available hook packages"
-    Currently installable hook packages include `brkraw-mrs` and `brkraw-dti`.
+    Currently installable hook packages include `brkraw-mrs`, `brkraw-dti` and
+    `brkraw-sordino`.
 
 ---
 

@@ -4,7 +4,7 @@ import os
 import argparse
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from ..core.entrypoints import list_entry_points as _iter_entry_points
 
 from brkraw import __version__
@@ -13,30 +13,43 @@ from brkraw.cli import pvcmd
 
 PLUGIN_GROUP = "brkraw.cli"
 HELP_CATEGORY_ORDER = ("Data", "Workspace", "Extensions")
-HELP_COMMAND_ORDER = {
-    "info": 0,
-    "params": 1,
-    "convert": 2,
-    "prune": 4,
-    "init": 5,
-    "config": 6,
-    "cache": 7,
-    "session": 8,
-    "addon": 9,
-    "hook": 10,
-}
-HELP_CATEGORY_BY_COMMAND = {
-    "info": "Data",
-    "params": "Data",
-    "convert": "Data",
-    "prune": "Data",
-    "init": "Workspace",
-    "config": "Workspace",
-    "cache": "Workspace",
-    "session": "Workspace",
-    "addon": "Extensions",
-    "hook": "Extensions",
-}
+
+# The one table of brkraw's own commands: help group and order in `brkraw -h`
+# and in the parser's command list. Plugin commands follow, in load order.
+CORE_COMMANDS: Tuple[Tuple[str, str], ...] = (
+    ("info", "Data"),
+    ("params", "Data"),
+    ("convert", "Data"),
+    ("prune", "Data"),
+    ("init", "Workspace"),
+    ("config", "Workspace"),
+    ("cache", "Workspace"),
+    ("session", "Workspace"),
+    ("addon", "Extensions"),
+    ("hook", "Extensions"),
+)
+HELP_COMMAND_ORDER: Dict[str, int] = {name: index for index, (name, _) in enumerate(CORE_COMMANDS)}
+HELP_CATEGORY_BY_COMMAND: Dict[str, str] = dict(CORE_COMMANDS)
+
+HELP_EPILOG = """\
+Get started:
+  brkraw init                              create the config folder
+  brkraw info /path/to/study               what is in the study
+  brkraw convert /path/to/study -s 3       convert scan 3 to NIfTI
+  brkraw prune /path/to/study --dry-run    what a zip of the study would hold
+
+For details on a command, run: brkraw <command> -h
+Documentation: https://brkraw.github.io/"""
+
+
+def order_commands(names: Iterable[str]) -> List[str]:
+    """Core commands in ``CORE_COMMANDS`` order, then the other names as given."""
+    given = list(names)
+    core_names = [name for name, _ in CORE_COMMANDS]
+    result = [name for name in core_names if name in given]
+    core_set = set(core_names)
+    result += [name for name in given if name not in core_set]
+    return result
 
 
 def _apply_root(args: argparse.Namespace) -> bool:
@@ -60,21 +73,7 @@ def _register_entry_point_commands(
             raise TypeError("entry point must be callable (register(subparsers)).")
         register(subparsers)
 
-    preferred = [
-        "init",
-        "config",
-        "cache",
-        "session",
-        "info",
-        "params",
-        "convert",
-        "prune",
-        "addon",
-        "hook",
-    ]
-    preferred_set = set(preferred)
-    ordered = [name for name in preferred if name in subparsers.choices]
-    ordered += [name for name in subparsers.choices if name not in preferred_set]
+    ordered = order_commands(subparsers.choices.keys())
     subparsers.choices = {name: subparsers.choices[name] for name in ordered}
     choices_actions = getattr(subparsers, "_choices_actions", None)
     if choices_actions:
@@ -156,16 +155,18 @@ def build_parser() -> Tuple[argparse.ArgumentParser, "argparse._SubParsersAction
     parser = argparse.ArgumentParser(
         prog="brkraw",
         description="BrkRaw command-line interface.",
+        epilog=HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,  # keep the epilog's lines
     )
     parser.add_argument(
         "-v", "--version", action="version", version="%(prog)s v{}".format(__version__)
     )
 
     subparsers = parser.add_subparsers(
-        title="Sub-commands",
+        title="Commands",
         description=(
-            "Choose one of the sub-commands below. For details on a specific "
-            "command, run: brkraw <command> -h."
+            "Choose one of the commands below. For details on a command, "
+            "run: brkraw <command> -h."
         ),
         dest="command",
         metavar="command",

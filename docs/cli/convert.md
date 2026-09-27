@@ -23,7 +23,7 @@ or on a scanner console the study open in ParaVision.
 | Option | Meaning |
 | --- | --- |
 | `-s`, `--scan-id` | Scan ID(s) to convert: `-s 3`, `-s 3 4 5` or `-s 3,4,5`. Without it, every scan is converted. With two or more, `--output` must be a folder. |
-| `-r`, `--reco-id` | Reco ID to convert. Without it, every reco of each scan is converted. With `-s`, every named scan must have this reco, else nothing is written; without `-s`, scans that lack it are skipped. |
+| `-r`, `--reco-id` | Reco ID to convert. Without it, every reco of each scan is converted. With `-s`, every named scan must have this reco, else nothing is written; without `-s`, scans that lack it are skipped and a warning names them (no scan with it: nothing is written). |
 
 A scan ID that the dataset does not have stops the run before anything is
 written.
