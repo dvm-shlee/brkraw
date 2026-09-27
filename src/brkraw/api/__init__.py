@@ -22,6 +22,7 @@ __all__ = [
     "pruner",
     "rules",
     "context_map",
+    "layout",
     "addon_manager",
     "validate_meta",
     "transform",
@@ -66,6 +67,7 @@ _LAZY: Dict[str, Tuple[str, str | None]] = {
     "rules": ("brkraw.specs", "rules"),
     # context map v3 (0.6.0 renamed brkraw.api.addon; no alias, BRK-0020)
     "context_map": ("brkraw.specs", "context_map"),
+    "layout": ("brkraw.core.layout", None),
 
     # meta
     "validate_meta": ("brkraw.specs.meta", "validate_meta"),
@@ -105,6 +107,7 @@ def __dir__() -> list[str]:
 if TYPE_CHECKING:
     from brkraw.core import formatter as formatter
     from brkraw.core import config as config
+    from brkraw.core import layout as layout
     from brkraw.apps.loader import BrukerLoader as BrukerLoader
     from brkraw.apps.loader import info as info_resolver
     from brkraw.apps.loader.info import transform as transform
