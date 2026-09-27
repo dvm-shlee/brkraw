@@ -30,9 +30,9 @@ BIDS_MAP = {
     "bids": {
         "sub": "01",
         "ses": "baseline",
-        "datatype": {"from": "MethodName", "map": {"EPI": "func", "RARE": "anat", "FieldMap": "fmap"}},
-        "suffix": {"from": "MethodName", "map": {"EPI": "bold", "RARE": "T2w", "FieldMap": "fieldmap"}},
-        "task": {"when": {"MethodName": "EPI"}, "value": "rest"},
+        "datatype": {"from": "MethodBase", "map": {"EPI": "func", "RARE": "anat", "FieldMap": "fmap"}},
+        "suffix": {"from": "MethodBase", "map": {"EPI": "bold", "RARE": "T2w", "FieldMap": "fieldmap"}},
+        "task": {"when": {"MethodBase": "EPI"}, "value": "rest"},
         "run": [{"when": {"ScanID": 5}, "value": 1}, {"when": {"ScanID": 6}, "value": 2}],
     },
     "split": {
@@ -250,13 +250,13 @@ def test_metadata_rules_do_not_depend_on_sidecar_option(study, tmp_path):
     assert len(_niis(out)) == 3 and not any("scan-3_" in p for p in _niis(out))
 
 
-def test_method_name_without_vendor_prefix(study):
+def test_method_base_without_vendor_prefix(study):
     from brkraw.apps.loader.info.transform import strip_method_prefix
     from brkraw.core import layout as layout_core
 
     info, _ = layout_core.load_layout_info_parts(brkraw.load(str(study)), 5, reco_id=1)
     assert info["Method"] == "Bruker:EPI"
-    assert info["MethodName"] == "EPI"
+    assert info["MethodBase"] == "EPI"
     assert strip_method_prefix("User:zte_mjm_anatomical") == "zte_mjm_anatomical"
     assert strip_method_prefix("FLASH") == "FLASH"
     assert strip_method_prefix("Unknown") == "Unknown"
