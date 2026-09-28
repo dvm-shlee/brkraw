@@ -152,6 +152,58 @@ def test_scale_frames_output_goes_through_get_nifti1image(tmp_path):
     assert np.allclose(np.asarray(img.dataobj), np.asarray(raw, dtype=float) * np.array([1.0, 2.0, 3.0]))
 
 
+# ---------------------------------------------------------------------------
+# wi-0038-choi-3: legacy cycle selection and -F (flatten_fg) for hooks
+# ---------------------------------------------------------------------------
+
+
+def _scaling_hook(got):
+    def convert(scan, dataobj, affine, **kwargs):
+        got.update(kwargs)
+        data = dataobj if isinstance(dataobj, tuple) else (dataobj,)
+        got["scaled"], got["applied"] = helper.scale_frames(
+            scan, kwargs["reco_id"], data,
+            **{k: kwargs.get(k) for k in ("axis", "frames", "cycle_index", "cycle_count")})
+        return None
+    return convert
+
+
+def test_hook_convert_gets_the_legacy_cycle_selection_and_can_scale_it(tmp_path):
+    got = {}
+    st = _study(tmp_path, [1.0, 2.0, 3.0])
+    loader = brkraw.load(str(st))
+    _bind(loader, 5, {"convert": _scaling_hook(got)})
+    loader.convert(5, reco_id=1, cycle_index=1, cycle_count=2)
+    assert got["cycle_index"] == 1 and got["cycle_count"] == 2
+    ref = brkraw.load(str(st)).convert(5, reco_id=1, cycle_index=1, cycle_count=2)
+    assert got["applied"] is True
+    assert np.allclose(got["scaled"][0], np.asarray(ref.dataobj))
+
+
+def _study_2fg(tmp_path):
+    # 2 echoes x 3 cycles, a different slope for each of the 6 frames
+    return make_synthetic_study(tmp_path / "s2", pv="360.3.3", scans={9: "MGE"},
+                                frames={9: [("FG_ECHO", 2), ("FG_CYCLE", 3)]},
+                                slopes={9: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})
+
+
+@pytest.mark.parametrize("selection", [{}, {"axis": "cycle", "frames": [0, 2]}])
+def test_scale_frames_accepts_data_flattened_by_flatten_fg(tmp_path, selection):
+    # brkraw flattens frame axes above 4D (-F) before a hook gets the data;
+    # scale_frames must scale those data like the default path (scale, then flatten)
+    got = {}
+    st = _study_2fg(tmp_path)
+    loader = brkraw.load(str(st))
+    _bind(loader, 9, {"convert": _scaling_hook(got)})
+    loader.convert(9, reco_id=1, flatten_fg=True, **selection)
+    ref = brkraw.load(str(st)).convert(9, reco_id=1, flatten_fg=True, **selection)
+    expected = np.asarray(ref.dataobj)
+    assert expected.ndim == 4
+    assert got["applied"] is True
+    assert got["scaled"][0].shape == expected.shape
+    assert np.allclose(got["scaled"][0], expected)
+
+
 def test_get_nifti1image_without_scaling_still_refuses_per_frame_slopes(tmp_path):
     scan = brkraw.load(str(_study(tmp_path, [1.0, 2.0, 3.0]))).get_scan(5)
     raw = scan.get_dataobj(1)
