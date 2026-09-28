@@ -204,6 +204,22 @@ def test_scale_frames_accepts_data_flattened_by_flatten_fg(tmp_path, selection):
     assert np.allclose(got["scaled"][0], expected)
 
 
+def test_scale_frames_flattened_with_two_slice_packs(tmp_path):
+    got = {}
+    st = make_synthetic_study(tmp_path / "s3", pv="360.3.3", scans={9: "MGE"},
+                              frames={9: [("FG_ECHO", 2), ("FG_CYCLE", 3)]}, packs={9: 2},
+                              slopes={9: [float(i + 1) for i in range(12)]})
+    loader = brkraw.load(str(st))
+    _bind(loader, 9, {"convert": _scaling_hook(got)})
+    loader.convert(9, reco_id=1, flatten_fg=True)
+    ref = brkraw.load(str(st)).convert(9, reco_id=1, flatten_fg=True)
+    assert isinstance(ref, tuple) and len(ref) == 2
+    assert got["applied"] is True
+    for mine, theirs in zip(got["scaled"], ref):
+        assert mine.shape == np.asarray(theirs.dataobj).shape
+        assert np.allclose(mine, np.asarray(theirs.dataobj))
+
+
 def test_get_nifti1image_without_scaling_still_refuses_per_frame_slopes(tmp_path):
     scan = brkraw.load(str(_study(tmp_path, [1.0, 2.0, 3.0]))).get_scan(5)
     raw = scan.get_dataobj(1)

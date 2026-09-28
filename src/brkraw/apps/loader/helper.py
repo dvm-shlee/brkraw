@@ -213,6 +213,7 @@ def _frame_scaling(
     frames: Optional[Union[int, List[int], str]] = None,
     cycle_index: Optional[int] = None,
     cycle_count: Optional[int] = None,
+    full_frames: bool = False,
 ) -> FrameScaling:
     """Decide and lay out VisuCoreDataSlope/VisuCoreDataOffs for convert() (BRK-0035, BRK-0036).
 
@@ -220,7 +221,9 @@ def _frame_scaling(
     data: the frame-group axes are the last axes of the resolved shape, in
     2dseq (Fortran) order; then the same legacy cycle block, z-axis swap,
     slice-pack split and ``axis``/``frames`` selection as the data. The
-    arrays broadcast against each pack's data.
+    arrays broadcast against each pack's data. With ``full_frames`` every
+    frame axis has its full size (not 1), so the arrays can be flattened like
+    data flattened by ``flatten_fg``.
     """
     image_info = scan.image_info.get(reco_id)
     affine_info = scan.affine_info.get(reco_id)
@@ -263,13 +266,18 @@ def _frame_scaling(
     shape = [int(n) for n in shape_info["shape"]]
     ndim = len(shape)
 
+    def full(arr: np.ndarray) -> np.ndarray:
+        if not full_frames:
+            return arr
+        return np.broadcast_to(arr, [1] * (ndim - len(fg_shape)) + fg_shape).copy()
+
     def layout(vec: np.ndarray, kind: str, j: int) -> Optional[np.ndarray]:
         if kind == "equal":
-            return np.full([1] * ndim, float(vec[0]))
+            return full(np.full([1] * ndim, float(vec[0])))
         if kind == "pack":
             return None  # filled per pack below
         tail = fg_shape[-j:]
-        return vec.reshape(tail, order="F").reshape([1] * (ndim - j) + tail)
+        return full(vec.reshape(tail, order="F").reshape([1] * (ndim - j) + tail))
 
     vectors = [slope, offset]
     arrays = [layout(v, *kinds[n]) for v, n in zip(vectors, ("VisuCoreDataSlope", "VisuCoreDataOffs"))]
@@ -317,6 +325,25 @@ def _frame_scaling(
     return FrameScaling("apply", packs)
 
 
+def _flatten_like(arr: np.ndarray, data: Any) -> np.ndarray:
+    """Flatten the frame axes (axis 3 on) of a scaling array like convert()'s -F flattened ``data``.
+
+    convert() flattens with order "F" when the data as read are only
+    Fortran-contiguous, else "C"; a reshape keeps that property, so the
+    flattened data show which order was used.
+    """
+    if arr.ndim <= 4:
+        return arr
+    data = np.asarray(data)
+    n = int(np.prod(arr.shape[3:]))
+    if n not in (1, int(data.shape[3])):
+        raise ValueError(
+            f"per-frame scaling has {n} frames, flattened data has {data.shape[3]}."
+        )
+    order = "F" if (data.flags.f_contiguous and not data.flags.c_contiguous) else "C"
+    return arr.reshape((*arr.shape[:3], n), order=order)
+
+
 def scale_frames(
     scan: "ScanLoader",
     reco_id: int,
@@ -339,6 +366,11 @@ def scale_frames(
         the flag is False. When they differ per frame, the data are scaled
         (float) and the flag is True (header slope 1, offset 0). When no layout
         matches, a warning is logged, the data stay raw and the flag is True.
+
+        Data flattened by ``flatten_fg`` (``-F``), as brkraw passes them to a
+        hook, are accepted: the frame axes of the values are flattened in the
+        same order as the data (the order brkraw's flattening used), so the
+        result equals the default path, which scales before flattening.
     """
     frame_scaling = _frame_scaling(
         scan, reco_id, axis=axis, frames=frames, cycle_index=cycle_index, cycle_count=cycle_count
@@ -350,9 +382,20 @@ def scale_frames(
             raise ValueError(
                 f"per-frame scaling has {len(frame_scaling.packs)} slice packs, data has {len(dataobjs)}."
             )
+        packs = frame_scaling.packs
+        if any(np.ndim(d) == 4 and a.ndim > 4 for d, pair in zip(dataobjs, packs) for a in pair):
+            # flatten_fg: brkraw flattened the frame axes before the hook got the data
+            full = _frame_scaling(
+                scan, reco_id, axis=axis, frames=frames, cycle_index=cycle_index,
+                cycle_count=cycle_count, full_frames=True,
+            )
+            assert full.packs is not None
+            packs = [
+                tuple(_flatten_like(a, d) for a in pair) for d, pair in zip(dataobjs, full.packs)
+            ]
         return tuple(
             np.asarray(d, dtype=float) * s_arr + o_arr
-            for d, (s_arr, o_arr) in zip(dataobjs, frame_scaling.packs)
+            for d, (s_arr, o_arr) in zip(dataobjs, packs)
         ), True
     if frame_scaling.mode == "skip":
         return dataobjs, True  # header 1/0, data raw

@@ -183,6 +183,9 @@ def convert(scan, dataobj, affine, **kwargs):
 With `brkraw convert --axis/--frames`, `convert` also gets `axis` and
 `frames` (when it takes them or `**kwargs`) and the data are already the
 selected frames; pass the same values to `scale_frames(..., axis=, frames=)`.
+The legacy `cycle_index`/`cycle_count` are passed the same way; give them to
+`scale_frames` too. With `-F` (`flatten_fg`) the data reach `convert` with the
+frame axes already flattened; `scale_frames` accepts them as they are.
 
 ### Recommended pattern: accept `**kwargs` and validate
 
