@@ -157,7 +157,8 @@ def _normalize_pack_scaling(
     raise ValueError(
         f"{name} has {raw.size} values, expected 1 (global), "
         f"{num_packs} (per-pack), or {total_slices} (per-slice); "
-        "different per-frame values are applied by convert()."
+        "different per-frame values are applied by convert(), or by a converter hook "
+        "with scale_frames() and scaling_applied=True."
     )
 
 
@@ -314,6 +315,48 @@ def _frame_scaling(
         packs.append((pair[0], pair[1]))
         start += count
     return FrameScaling("apply", packs)
+
+
+def scale_frames(
+    scan: "ScanLoader",
+    reco_id: int,
+    dataobjs: Tuple[NDArray, ...],
+    *,
+    axis: Optional[Union[str, int]] = None,
+    frames: Optional[Union[int, List[int], str]] = None,
+    cycle_index: Optional[int] = None,
+    cycle_count: Optional[int] = None,
+) -> Tuple[Tuple[NDArray, ...], bool]:
+    """Apply per-frame VisuCoreDataSlope/VisuCoreDataOffs the way convert() does (BRK-0036).
+
+    For converter hooks, which get the data as read: pass the data objects
+    (one per slice pack, with the same frame selection as the call) and pass
+    the returned flag to ``get_nifti1image(..., scaling_applied=...)``.
+
+    Returns:
+        ``(dataobjs, scaling_applied)``. When the values are one per reco, per
+        slice pack or per slice, nothing is changed (the header carries them) and
+        the flag is False. When they differ per frame, the data are scaled
+        (float) and the flag is True (header slope 1, offset 0). When no layout
+        matches, a warning is logged, the data stay raw and the flag is True.
+    """
+    frame_scaling = _frame_scaling(
+        scan, reco_id, axis=axis, frames=frames, cycle_index=cycle_index, cycle_count=cycle_count
+    )
+    dataobjs = tuple(dataobjs)
+    if frame_scaling.mode == "apply":
+        assert frame_scaling.packs is not None
+        if len(frame_scaling.packs) != len(dataobjs):
+            raise ValueError(
+                f"per-frame scaling has {len(frame_scaling.packs)} slice packs, data has {len(dataobjs)}."
+            )
+        return tuple(
+            np.asarray(d, dtype=float) * s_arr + o_arr
+            for d, (s_arr, o_arr) in zip(dataobjs, frame_scaling.packs)
+        ), True
+    if frame_scaling.mode == "skip":
+        return dataobjs, True  # header 1/0, data raw
+    return dataobjs, False
 
 
 def _layout_warnings(scan: "ScanLoader", reco_id: int) -> None:
@@ -1114,27 +1157,16 @@ def convert(
     scaling_applied = False
     if not isinstance(converter_func, ConvertType):
         _layout_warnings(self, resolved_reco_id)
-        frame_scaling = _frame_scaling(
+        scaled, scaling_applied = scale_frames(
             self,
             resolved_reco_id,
+            tuple(dataobjs),
             axis=merged_kwargs.get("axis"),
             frames=merged_kwargs.get("frames"),
             cycle_index=merged_kwargs.get("cycle_index"),
             cycle_count=merged_kwargs.get("cycle_count"),
         )
-        if frame_scaling.mode == "apply":
-            assert frame_scaling.packs is not None
-            if len(frame_scaling.packs) != len(dataobjs):
-                raise ValueError(
-                    f"per-frame scaling has {len(frame_scaling.packs)} slice packs, data has {len(dataobjs)}."
-                )
-            dataobjs = [
-                np.asarray(d, dtype=float) * s_arr + o_arr
-                for d, (s_arr, o_arr) in zip(dataobjs, frame_scaling.packs)
-            ]
-            scaling_applied = True
-        elif frame_scaling.mode == "skip":
-            scaling_applied = True  # header 1/0, data raw
+        dataobjs = list(scaled)
     for i, dataobj in enumerate(dataobjs):
         if flatten_fg and dataobj.ndim > 4:
             spatial_shape = dataobj.shape[:3]
@@ -1143,7 +1175,17 @@ def convert(
     dataobjs = tuple(dataobjs)
 
     if isinstance(converter_func, ConvertType):
-        hook_call_kwargs = _filter_hook_kwargs(converter_func, convert_kwargs)
+        # the hook gets the reco id and the frame selection when it takes them or **kwargs
+        # (BRK-0046); the data stay as read, and helper.scale_frames applies the per-frame
+        # rule with the same selection if the hook wants it
+        selection = {
+            key: merged_kwargs[key]
+            for key in ("axis", "frames", "cycle_index", "cycle_count")
+            if merged_kwargs.get(key) is not None
+        }
+        hook_call_kwargs = _filter_hook_kwargs(
+            converter_func, {**convert_kwargs, **selection, "reco_id": resolved_reco_id}
+        )
         logger.debug(
             "Calling converter hook for scan %s reco %s with args %s",
             getattr(self, "scan_id", "?"),

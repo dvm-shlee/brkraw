@@ -152,6 +152,38 @@ If users provide extra keys that your hook does not accept, BrkRaw will drop
 unsupported kwargs (and log the dropped keys at DEBUG) to avoid `TypeError`
 crashes.
 
+### The reco and intensity scaling in `convert`
+
+`convert(scan, dataobj, affine, **kwargs)` gets the data as read: BrkRaw does
+not apply the per-frame slope/offset rule for a hook with its own `convert`
+(see [Intensity scaling](../cli/convert.md#intensity-scaling)). Two helpers
+(0.6.0rc2) let the hook produce the same values as BrkRaw's default path:
+
+- `reco_id` is passed to `convert` when it takes a `reco_id` parameter or
+  `**kwargs`. Use it instead of guessing the reco from the data or affine.
+- `brkraw.api.scale_frames(scan, reco_id, dataobjs)` returns
+  `(dataobjs, scaling_applied)`. Pass the data objects as a tuple (one per
+  slice pack). When the slopes or offsets differ per frame, the data come
+  back scaled (float) and `scaling_applied` is True; otherwise they are
+  unchanged and the header carries the value. Give the flag to
+  `scan.get_nifti1image(..., scaling_applied=...)`.
+
+```python
+from brkraw import api
+
+def convert(scan, dataobj, affine, **kwargs):
+    reco_id = kwargs["reco_id"]
+    data = dataobj if isinstance(dataobj, tuple) else (dataobj,)
+    affines = affine if isinstance(affine, tuple) else (affine,)
+    data, applied = api.scale_frames(scan, reco_id, data)
+    return scan.get_nifti1image(reco_id=reco_id, dataobjs=data, affines=affines,
+                                scaling_applied=applied)
+```
+
+With `brkraw convert --axis/--frames`, `convert` also gets `axis` and
+`frames` (when it takes them or `**kwargs`) and the data are already the
+selected frames; pass the same values to `scale_frames(..., axis=, frames=)`.
+
 ### Recommended pattern: accept `**kwargs` and validate
 
 For hooks with many optional arguments, prefer:
