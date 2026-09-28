@@ -220,6 +220,43 @@ def test_scale_frames_flattened_with_two_slice_packs(tmp_path):
         assert np.allclose(mine, np.asarray(theirs.dataobj))
 
 
+# Choi's wi-0038-choi-4 counterexample: when the flattened data are both C- and
+# F-contiguous (all spatial axes 1), the flatten order convert() used cannot be told
+# from the data; with 2+ varying frame axes that must stop, not guess (BRK-0051)
+
+_SLOPES_2x3 = np.arange(1.0, 7.0).reshape((1, 1, 1, 2, 3), order="F")
+
+
+def _flattened(spatial, order):
+    raw = np.ones((*spatial, 2, 3))
+    if order == "F":
+        raw = np.asfortranarray(raw)
+    used = "F" if (raw.flags.f_contiguous and not raw.flags.c_contiguous) else "C"
+    return raw, raw.reshape((*spatial, -1), order=used), used
+
+
+def test_flatten_like_refuses_an_ambiguous_order():
+    _, flat, _ = _flattened((1, 1, 1), "F")
+    with pytest.raises(ValueError, match="order"):
+        helper._flatten_like(_SLOPES_2x3, flat)
+
+
+@pytest.mark.parametrize("spatial", [(4, 1, 1), (1, 4, 1), (4, 4, 1), (4, 4, 3)])
+@pytest.mark.parametrize("order", ["F", "C"])
+def test_flatten_like_matches_convert_when_the_order_is_known(spatial, order):
+    raw, flat, used = _flattened(spatial, order)
+    expected = (raw * _SLOPES_2x3).reshape((*spatial, -1), order=used)
+    assert np.array_equal(flat * helper._flatten_like(_SLOPES_2x3, flat), expected)
+
+
+def test_flatten_like_one_varying_frame_axis_needs_no_order():
+    # only one frame axis varies: both orders give the same values, so no error
+    slopes = np.arange(1.0, 4.0).reshape((1, 1, 1, 1, 3))
+    _, flat, _ = _flattened((1, 1, 1), "F")
+    flat = flat[..., :3]
+    assert np.array_equal(helper._flatten_like(slopes, flat).ravel(), [1.0, 2.0, 3.0])
+
+
 def test_get_nifti1image_without_scaling_still_refuses_per_frame_slopes(tmp_path):
     scan = brkraw.load(str(_study(tmp_path, [1.0, 2.0, 3.0]))).get_scan(5)
     raw = scan.get_dataobj(1)
