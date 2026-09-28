@@ -1,12 +1,12 @@
-# Release v0.6.0rc1
+# Release v0.6.0rc2
 
 Date: 2026-09-27
 Changes since 0.5.7
 
-This is the release candidate of 0.6.0. It is a pre-release, tagged on the
-development fork for testing with real data; it is not published to PyPI or
-TestPyPI yet. From here to 0.6.0 only fixes go in: no new names or options
-(a change of that kind would mean a second release candidate).
+This is the second release candidate of 0.6.0. It is a pre-release, tagged on
+the development fork for testing with real data; it is not published to PyPI
+or TestPyPI yet. rc2 adds a small hook API (below) that rc1 did not have; from
+here to 0.6.0 only fixes go in.
 
 The main goal of 0.6.0 is context mapping for BIDS-style output. 0.6.0 also
 rebuilds the subject orientation of all 16 poses and fixes per-frame intensity
@@ -115,6 +115,19 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
+## Changes since 0.6.0rc1 (for fork testers)
+
+- **Hook API:** a converter hook's `convert` now gets `reco_id` and the frame
+  selection (`axis`, `frames`, legacy cycle options) when it takes them or
+  `**kwargs`; the data stay as read. The new public
+  `brkraw.api.scale_frames(scan, reco_id, dataobjs, axis=, frames=)` applies
+  the per-frame slope/offset rule so a hook gives the same values as the
+  default path (pass its flag to `get_nifti1image(..., scaling_applied=...)`).
+  The default conversion uses the same function; its output is unchanged.
+  See "Building converter hook packages" in the developer docs.
+- **Python 3.8:** prune works again on 3.8 (`importlib_resources` fallback
+  where `importlib.resources.files` was used without it); CI on 3.8 passes.
+
 ## Changes since 0.6.0b1 (for fork testers)
 
 - `init --yes` no longer appends the shell helpers to `~/.zshrc`/`~/.bashrc`.
@@ -148,13 +161,25 @@ before comparing or combining with 0.5.7 outputs.
 ## All commits since 0.5.7
 
 Subjects are shortened where they named internal planning steps; the
-hashes are the fork's commits (`git log 0.5.7..0.6.0rc1`).
+hashes are the fork's commits (`git log 0.5.7..0.6.0rc2`).
 
 ### Releases
 
 - Prepare pre-release 0.6.0a1 (812ec9b)
 - Prepare pre-release 0.6.0b1 (d8720a8)
-- Prepare release candidate 0.6.0rc1 (this commit)
+- Prepare release candidate 0.6.0rc1 (201bd8f)
+- Prepare release candidate 0.6.0rc2 (this commit)
+
+### Converter hooks
+
+- Tests first: hook convert gets reco_id; public scale_frames applies the per-frame slope rule for hooks (72cea85)
+- Tests: hook convert also gets the frame selection; brkraw.api import in the public-API test (6d6bf4d)
+- Hook API: convert gets reco_id and the frame selection; public scale_frames (brkraw.api) applies the per-frame slope rule; default convert uses it (82e6227)
+
+### Python 3.8
+
+- Tests first: every resources.files() user carries the Python 3.8 importlib_resources fallback (10f9dc9)
+- Python 3.8: importlib_resources fallback for resources.files in prune and its test (a619a49)
 
 ### Orientation
 
@@ -211,6 +236,7 @@ hashes are the fork's commits (`git log 0.5.7..0.6.0rc1`).
 - init --yes leaves shell files alone, params prints to stdout, one scan-id rule, convert takes several scans with a pre-check (deea079)
 - Tests first: help wording and -r without -s naming skipped scans (401d8ee)
 - Next steps at the end of brkraw -h, one command table, Commands title, addon/hook help and docs; -r without -s names the skipped scans (a2b2af7)
+- Test fix: plugins come after the core commands, other installed plugins may follow too (c77db3b)
 
 ### Documentation
 
