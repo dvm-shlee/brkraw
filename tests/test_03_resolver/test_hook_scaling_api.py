@@ -41,6 +41,26 @@ def test_hook_with_kwargs_gets_reco_id(tmp_path):
     assert seen.get("reco_id") == 1
 
 
+def test_hook_convert_gets_the_frame_selection_and_can_scale_it(tmp_path):
+    got = {}
+
+    def convert(scan, dataobj, affine, **kwargs):
+        got.update(kwargs)
+        data = dataobj if isinstance(dataobj, tuple) else (dataobj,)
+        got["scaled"], got["applied"] = helper.scale_frames(
+            scan, kwargs["reco_id"], data, axis=kwargs.get("axis"), frames=kwargs.get("frames"))
+        return None
+
+    st = _study(tmp_path, [1.0, 2.0, 3.0])
+    loader = brkraw.load(str(st))
+    _bind(loader, 5, {"convert": convert})
+    loader.convert(5, reco_id=1, axis="cycle", frames=[0, 2])
+    assert got["axis"] == "cycle" and got["frames"] == [0, 2]
+    ref = brkraw.load(str(st)).convert(5, reco_id=1, axis="cycle", frames=[0, 2])
+    assert got["applied"] is True
+    assert np.allclose(got["scaled"][0], np.asarray(ref.dataobj))
+
+
 def test_hook_with_a_reco_id_parameter_gets_it(tmp_path):
     seen = []
 
@@ -89,8 +109,11 @@ def test_hook_still_gets_raw_data(tmp_path):
 
 
 def test_scale_frames_is_public():
+    from brkraw import api
+
     assert callable(helper.scale_frames)
-    assert brkraw.api.scale_frames is helper.scale_frames
+    assert api.scale_frames is helper.scale_frames
+    assert "scale_frames" in api.__all__
 
 
 def test_scale_frames_applies_different_per_frame_slopes(tmp_path):
