@@ -123,7 +123,9 @@ before comparing or combining with 0.5.7 outputs.
   `brkraw.api.scale_frames(scan, reco_id, dataobjs, axis=, frames=)` applies
   the per-frame slope/offset rule so a hook gives the same values as the
   default path (pass its flag to `get_nifti1image(..., scaling_applied=...)`);
-  it also takes the legacy cycle options and data flattened by `-F`.
+  it also takes the legacy cycle options and data flattened by `-F` (with an
+  error, not a guess, when every spatial axis is 1 and two or more frame axes
+  have different values, because the flatten order cannot be told then).
   The default conversion uses the same function; its output is unchanged.
   See "Building converter hook packages" in the developer docs.
 - **Python 3.8:** prune works again on 3.8 (`importlib_resources` fallback
@@ -177,7 +179,9 @@ hashes are the fork's commits (`git log 0.5.7..0.6.0rc2`).
 - Tests: hook convert also gets the frame selection; brkraw.api import in the public-API test (6d6bf4d)
 - Hook API: convert gets reco_id and the frame selection; public scale_frames (brkraw.api) applies the per-frame slope rule; default convert uses it (82e6227)
 - Tests first: a hook can scale data flattened by flatten_fg (-F) with scale_frames, and gets the legacy cycle selection (a48062e)
-- scale_frames accepts data flattened by flatten_fg (-F), as brkraw passes them to a hook; release notes and hook docs (this commit)
+- scale_frames accepts data flattened by flatten_fg (-F), as brkraw passes them to a hook; release notes and hook docs (0430264)
+- Tests first: scale_frames refuses -F data whose flatten order cannot be told instead of guessing (2595a6e)
+- scale_frames stops with an error when the -F flatten order cannot be told (all spatial axes 1, 2+ varying frame axes) (this commit)
 
 ### Python 3.8
 

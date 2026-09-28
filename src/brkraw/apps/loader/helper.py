@@ -330,7 +330,10 @@ def _flatten_like(arr: np.ndarray, data: Any) -> np.ndarray:
 
     convert() flattens with order "F" when the data as read are only
     Fortran-contiguous, else "C"; a reshape keeps that property, so the
-    flattened data show which order was used.
+    flattened data show which order was used. When the flattened data are both
+    C- and F-contiguous (every spatial axis has size 1), the order cannot be
+    told; if two or more frame axes vary, the two orders give different values,
+    so this stops with an error instead of guessing (BRK-0051).
     """
     if arr.ndim <= 4:
         return arr
@@ -339,6 +342,13 @@ def _flatten_like(arr: np.ndarray, data: Any) -> np.ndarray:
     if n not in (1, int(data.shape[3])):
         raise ValueError(
             f"per-frame scaling has {n} frames, flattened data has {data.shape[3]}."
+        )
+    varying = sum(1 for s in arr.shape[3:] if s > 1)
+    if varying >= 2 and data.flags.f_contiguous and data.flags.c_contiguous:
+        raise ValueError(
+            "per-frame scaling: the order in which -F (flatten_fg) flattened the frame axes "
+            f"cannot be told from data of shape {data.shape}; convert without -F, or apply "
+            "scale_frames before flattening."
         )
     order = "F" if (data.flags.f_contiguous and not data.flags.c_contiguous) else "C"
     return arr.reshape((*arr.shape[:3], n), order=order)
@@ -359,6 +369,8 @@ def scale_frames(
     For converter hooks, which get the data as read: pass the data objects
     (one per slice pack, with the same frame selection as the call) and pass
     the returned flag to ``get_nifti1image(..., scaling_applied=...)``.
+    Raises ValueError for ``-F`` data whose flatten order cannot be told (every
+    spatial axis 1, two or more varying frame axes; BRK-0051).
 
     Returns:
         ``(dataobjs, scaling_applied)``. When the values are one per reco, per

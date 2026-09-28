@@ -185,7 +185,11 @@ With `brkraw convert --axis/--frames`, `convert` also gets `axis` and
 selected frames; pass the same values to `scale_frames(..., axis=, frames=)`.
 The legacy `cycle_index`/`cycle_count` are passed the same way; give them to
 `scale_frames` too. With `-F` (`flatten_fg`) the data reach `convert` with the
-frame axes already flattened; `scale_frames` accepts them as they are.
+frame axes already flattened; `scale_frames` accepts them as they are. One
+exception: when every spatial axis has size 1 and two or more frame axes have
+different slopes or offsets, the flatten order cannot be told from the data,
+and `scale_frames` raises `ValueError` instead of guessing; convert such data
+without `-F`.
 
 ### Recommended pattern: accept `**kwargs` and validate
 
