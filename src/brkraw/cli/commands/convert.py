@@ -16,7 +16,11 @@ import warnings
 from pathlib import Path
 from typing import Any, Mapping, Optional, Dict, List, Tuple, Sequence, Union, cast, get_args
 
+import sys
+
 import numpy as np
+from brkraw.apps.loader.helper import _resolve_hook_kwargs
+from brkraw.cli import cache_check
 from brkraw.cli.utils import add_root_argument, load, parse_scan_ids
 from brkraw.cli.hook_args import load_hook_args_yaml, merge_hook_args
 from brkraw.core import config as config_core
@@ -34,6 +38,44 @@ logger = logging.getLogger(__name__)
 _INVALID_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
 _COUNTER_TAG = re.compile(r"\{(?:Counter|counter)\}")
+
+
+def _convert_scan(loader: Any, scan_id: Any, reco_id: Any, convert_kwargs: Mapping[str, Any],
+                  selection: Mapping[str, Any]) -> Any:
+    """``loader.convert``, with one confirmed retry when a hook stops for memory (WI-0074).
+
+    Contract with converter hooks: a hook that refuses to start because its
+    memory estimate is above its limit raises a ``MemoryError`` whose
+    ``retry_kwargs`` attribute is a dict of hook arguments that would pass (for
+    example ``{"max_memory_gb": 7.5}``). In a terminal (stdin and stderr are a
+    terminal) the CLI shows the message and asks "Proceed anyway with ...?
+    [y/N]"; on ``y``/``yes`` it converts once more with those arguments added to
+    that hook's arguments. Otherwise (no terminal, another answer, no
+    ``retry_kwargs``, or a second stop) the error goes to the caller as before.
+    """
+    try:
+        return loader.convert(scan_id, reco_id=reco_id, **convert_kwargs, **selection)
+    except MemoryError as exc:
+        retry = getattr(exc, "retry_kwargs", None)
+        if not isinstance(retry, Mapping) or not retry:
+            raise
+        try:
+            scan = loader.get_scan(scan_id)
+        except Exception:  # noqa: BLE001 - keep the hook's own error (wi-0074-choi-1)
+            raise exc from None
+        hook_name = getattr(scan, "_converter_hook_name", None)
+        if not isinstance(hook_name, str) or not hook_name or not cache_check.is_interactive():
+            raise
+        sys.stderr.write(f"{exc}\n")
+        text = ", ".join(f"{key}={value}" for key, value in retry.items())
+        if not cache_check.ask_yes(f"Proceed anyway with {text} for scan {scan_id}? [y/N]: "):
+            raise
+        by_name = dict(convert_kwargs.get("hook_args_by_name") or {})
+        current = _resolve_hook_kwargs(scan, by_name)   # the arguments the hook got, under any alias
+        by_name[hook_name] = {**current, **dict(retry)}
+        logger.info("Retrying scan %s with %s.", scan_id, text)
+        retry_kwargs = dict(convert_kwargs, hook_args_by_name=by_name)
+        return loader.convert(scan_id, reco_id=reco_id, **retry_kwargs, **selection)
 
 
 def cmd_convert(args: argparse.Namespace) -> int:
@@ -400,7 +442,7 @@ def _convert_one(args: argparse.Namespace) -> int:
                         with warnings.catch_warnings():
                             # the CLI already logged the legacy-option notice
                             warnings.simplefilter("ignore", DeprecationWarning)
-                            nii = loader.convert(scan_id, reco_id=reco_id, **convert_kwargs, **selection)
+                            nii = _convert_scan(loader, scan_id, reco_id, convert_kwargs, selection)
                     except Exception as exc:
                         logger.error("Conversion failed for scan %s reco %s: %s", scan_id, reco_id, exc)
                         if not several and args.reco_id is not None:
@@ -800,7 +842,7 @@ def _convert_with_map_template(
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                nii = loader.convert(scan_id, reco_id=reco_id, **convert_kwargs, **group["selection"])
+                nii = _convert_scan(loader, scan_id, reco_id, convert_kwargs, group["selection"])
         except Exception as exc:
             # as without a template: one failed scan stops only an explicit -s/-r request
             logger.error("Conversion failed for %s: %s", group["label"], exc)

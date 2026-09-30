@@ -115,6 +115,26 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
+## Planned for 0.6.1 (not in 0.6.0)
+
+- **Cache size warning:** before a command (not `cache`, `config`, `init`),
+  brkraw warns on stderr when the cache folder is larger than
+  `cache.warn_size_gb` (new config key, default 10 GB; 0 turns it off; or
+  `BRKRAW_NO_CACHE_CHECK=1`) and shows each subfolder's size. In a terminal it
+  asks per subfolder (for example `sordino/`), largest first, `[y/N]`; only
+  `y`/`yes` deletes. Without a terminal nothing is asked or deleted. The
+  command's own result does not change.
+- **`brkraw cache`:** `cache info` lists each subfolder and `(files)` for the
+  files directly in the folder; `cache clear --only NAME` (repeatable) clears
+  only those entries; an unknown name deletes nothing.
+  `brkraw.core.cache.get_info(..., by_entry=True)` and
+  `clear(..., only=[...])` are the same in Python.
+- **Hooks that stop for memory:** a hook may raise a `MemoryError` with a
+  `retry_kwargs` dict (hook arguments that would pass, for example
+  `{"max_memory_gb": 7.5}`); `brkraw convert` in a terminal asks "Proceed
+  anyway?" and on `y` converts that scan once more with them. See
+  [Building converter hook packages](docs/dev/hook-packages.md).
+
 ## Changes since 0.6.0rc2 (for fork testers)
 
 - **Faster, lighter file opening:** deciding whether a dataset file is a JCAMP

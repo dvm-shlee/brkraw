@@ -191,6 +191,33 @@ different slopes or offsets, the flatten order cannot be told from the data,
 and `scale_frames` raises `ValueError` instead of guessing; convert such data
 without `-F`.
 
+### Stopping for memory, and the CLI retry (0.6.1)
+
+A hook that estimates, before it starts, that a scan needs more memory than it
+allows may refuse with a `MemoryError` (or a subclass). If the error has an
+attribute `retry_kwargs`, a dict of hook arguments that would let it run (for
+example `{"max_memory_gb": 7.5}`), `brkraw convert` in a terminal shows the
+message and asks `Proceed anyway with max_memory_gb=7.5 for scan N? [y/N]`.
+On `y`/`yes` it converts that scan once more with those arguments added to the
+hook's arguments (they override the user's value of the same key); any other
+answer, a second stop, a missing `retry_kwargs` or no terminal (scripts, CI)
+leaves the error as it was: the scan fails and the run goes on as before.
+Only the hook's own arguments can be proposed this way; keep them to limits
+the user could also give with `--hook-arg`.
+
+```python
+class MyResourceError(MemoryError):
+    def __init__(self, message, retry_kwargs=None):
+        super().__init__(message)
+        self.retry_kwargs = retry_kwargs
+
+def get_dataobj(scan, reco_id=None, *, max_memory_gb=None, **kwargs):
+    need_gb = estimate_gb(scan, **kwargs)
+    if need_gb > (max_memory_gb or default_limit_gb()):
+        raise MyResourceError(f"needs about {need_gb:.1f} GB", {"max_memory_gb": round(need_gb + 0.05, 1)})
+    ...
+```
+
 ### Recommended pattern: accept `**kwargs` and validate
 
 For hooks with many optional arguments, prefer:
