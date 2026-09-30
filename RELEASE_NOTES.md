@@ -115,6 +115,14 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
+## Changes since 0.6.0rc2 (for fork testers)
+
+- **Faster, lighter file opening:** deciding whether a dataset file is a JCAMP
+  parameter file now reads only its first 64 KiB. Before, the whole file was
+  decoded and split into lines, so opening a 300 MB `2dseq` spent about 1.8 s
+  and up to about 660 MB of extra memory on this check alone. Results are
+  unchanged for real parameter files.
+
 ## Changes since 0.6.0rc1 (for fork testers)
 
 - **Hook API:** a converter hook's `convert` now gets `reco_id` and the frame
