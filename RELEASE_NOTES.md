@@ -115,6 +115,36 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
+## Changes since 0.6.0 (0.6.1, for fork testers)
+
+- **`2dseq` is read by the frames you ask for.** `get_dataobj(..., axis=,
+  frames=)` and `convert --axis/--frames` now read only those frames from a
+  folder, a stored zip or a compressed zip, instead of reading the whole
+  `2dseq` and cutting afterwards. Measured on a synthetic 150 MiB `2dseq`
+  (128 x 128 x 16 slices x 300 cycles): asking for 3 cycles took about 3-8 MiB
+  of extra memory (was 150 MiB; 407 MiB for a compressed zip), one cycle
+  about 1-5 MiB. Values, dtype, shape and the array properties are the same
+  as 0.6.0, including the memory layout that `convert -F` uses to choose the
+  flatten order; when the smaller read would change that layout (a step
+  slice such as `::2`, or a single frame or `a:b` slice of an axis that has
+  other frame axes after it), brkraw reads all like 0.6.0. A compressed zip can only
+  be read forward, so reading late frames still has to decompress the frames
+  before them (in small steps, with no extra memory); a stored zip and a
+  folder jump straight to the frames.
+- **The whole `2dseq` is read once, not twice.** The file was opened twice
+  for one read (an existence check and the read itself each loaded it), so a
+  compressed zip was decompressed two times and needed about 2.6 times the
+  file size in memory; now one time and about 1.1 times. `cycle_index/cycle_count`
+  (deprecated) read only their block as well.
+- **Damaged zip files:** a read of only some frames from a zip does not check
+  the whole entry's CRC-32 (that needs every byte read), so if the zip is
+  damaged, those frames can come back with wrong values where 0.6.0 stopped
+  with `BadZipFile`. Reading all of the data still checks it. Check a
+  zip you doubt with `python -m zipfile -t file.zip`.
+- A read with `frames` no longer keeps the whole array in the scan afterwards
+  (it did in 0.6.0); a later read of the full data reads the file again. If
+  the full array is already loaded, `frames` cuts that array as before.
+
 ## Changes since 0.6.0rc2 (for fork testers)
 
 - **Faster, lighter file opening:** deciding whether a dataset file is a JCAMP
