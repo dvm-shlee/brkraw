@@ -942,7 +942,10 @@ def get_dataobj(
             cycle_index=cycle_index,
             cycle_count=cycle_count,
         )
-        self.image_info[resolved_reco_id] = image_info
+        if not cycle_args_requested:
+            # A legacy cycle block is returned to this caller only; keeping it
+            # would make later plain get_dataobj() calls return the block.
+            self.image_info[resolved_reco_id] = image_info
 
     num_slices = affine_info["num_slices"]
     dataobj = cast(dict, image_info).get("dataobj")
