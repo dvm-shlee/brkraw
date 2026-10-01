@@ -356,3 +356,31 @@ def test_wrong_sized_2dseq_gives_the_same_error_for_frames_and_full_reads(tmp_pa
         with pytest.raises(ValueError) as got:
             _get(path, **kwargs)
         assert str(got.value) == str(ref.value)
+
+
+@pytest.mark.parametrize("compression", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED])
+def test_raw_stream_skip_ahead_keeps_memory_small_on_every_python(tmp_path, compression):
+    """WI-0090: a seek far ahead in a zip entry must not read the skipped bytes into memory at once.
+
+    ZipExtFile.seek jumps directly in a stored entry only from Python 3.12; before that it
+    reads (up to 16 MiB per step) and keeps what it skipped, so RawStream must skip in small steps.
+    """
+    import tracemalloc
+
+    frame = 64 * 64 * 2
+    payload = bytes(range(256)) * (frame * 2000 // 256)
+    zpath = tmp_path / "raw.zip"
+    with zipfile.ZipFile(zpath, "w", compression=compression) as zf:
+        zf.writestr("a/2dseq", payload)
+    with zipfile.ZipFile(zpath) as zf:
+        tracemalloc.start()
+        try:
+            with image_resolver.RawStream(lambda: zf.open("a/2dseq"), len(payload)) as s:
+                s.seek(1500 * frame)
+                buf = bytearray(2 * frame)
+                assert s.readinto(buf) == 2 * frame
+                _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+    assert bytes(buf) == payload[1500 * frame:1502 * frame]
+    assert peak < len(payload) / 4, (peak, len(payload))

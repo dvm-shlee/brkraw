@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import IO, TYPE_CHECKING, Any, Callable, Optional, Sequence, TypedDict, List, Tuple, Union
 import logging
 import os
+import sys
 import zipfile
 from .datatype import resolve as datatype_resolver
 from .shape import resolve as shape_resolver
@@ -49,8 +50,10 @@ _IO_CHUNK = 1 << 20  # a zip entry builds a temporary copy of what one call read
 class RawStream:
     """A 2dseq entry opened as a stream that can seek, and counts the bytes it reads.
 
-    Folder files and stored zip entries seek directly. A compressed zip entry can
-    only be read forward: a seek ahead reads and drops the bytes in small steps
+    Folder files seek directly, and so do stored zip entries on Python 3.12 and later.
+    Before 3.12, ZipExtFile.seek on a stored entry reads the skipped bytes (up to 16 MiB
+    in one piece) instead of jumping, and a compressed entry can only be read forward
+    on every version. For those a seek ahead reads and drops the bytes in small steps
     (memory stays bounded), a seek back opens the entry again.
     """
 
@@ -60,7 +63,8 @@ class RawStream:
         self._pos = 0
         self.size = size
         self.bytes_read = 0
-        self._direct = getattr(self._f, "_compress_type", zipfile.ZIP_STORED) == zipfile.ZIP_STORED
+        compress = getattr(self._f, "_compress_type", None)  # None: not a zip entry (plain file)
+        self._direct = compress is None or (compress == zipfile.ZIP_STORED and sys.version_info >= (3, 12))
 
     def seek(self, pos: int) -> int:
         pos = int(pos)
