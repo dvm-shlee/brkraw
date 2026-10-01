@@ -32,11 +32,21 @@ LAYOUTS = {
         {"frames": {5: [("FG_SLICE", 2), ("FG_ECHO", 2), ("FG_CYCLE", 3)]}, "packs": {5: 2}},
         ["echo", "cycle"],
     ),
+    # the frame axes after the first are not size 2, so lists of 2 of 3 on a non-last axis are covered
+    "echo3_cycle3": ({"frames": {5: [("FG_ECHO", 3), ("FG_CYCLE", 3)]}}, ["echo", "cycle"]),
+    "three_axes": (
+        {"frames": {5: [("FG_ECHO", 3), ("FG_DIFFUSION", 2), ("FG_CYCLE", 3)]}},
+        ["echo", "diffusion", "cycle"],
+    ),
+    "packs_three_axes": (
+        {"frames": {5: [("FG_SLICE", 2), ("FG_ECHO", 3), ("FG_DIFFUSION", 2), ("FG_CYCLE", 2)]}, "packs": {5: 2}},
+        ["echo", "diffusion", "cycle"],
+    ),
 }
 
 SELECTIONS = [
     0, -1, 1,
-    [1], [2, 0], [0, 1],
+    [1], [2, 0], [0, 1], (2, 0),
     "0:2", "1:", ":2", "::2", "::-1", "1:3", "-2:",
 ]
 
@@ -316,3 +326,33 @@ def test_memory_stays_small_for_a_few_frames(tmp_path, source):
         tracemalloc.stop()
     assert np.array_equal(full, expected)
     assert peak_full < size * 1.6, (peak_full, size)  # the full read holds the data once, not twice
+
+
+def _rewrite_2dseq(tmp_path: Path, source: str, new_size: int) -> str:
+    """A cycle study whose 2dseq has new_size bytes (cut or padded), as folder or stored/deflated zip."""
+    study = make_synthetic_study(tmp_path / "bad", pv="360.3.3", scans={5: "EPI"}, frames={5: [("FG_CYCLE", 7)]})
+    f = study / "5" / "pdata" / "1" / "2dseq"
+    data = f.read_bytes()
+    f.write_bytes((data + bytes(new_size))[:new_size])
+    if source == "folder":
+        return str(study)
+    comp = zipfile.ZIP_STORED if source == "stored" else zipfile.ZIP_DEFLATED
+    zpath = tmp_path / f"bad-{source}.zip"
+    with zipfile.ZipFile(zpath, "w", compression=comp) as zf:
+        for p in sorted(study.rglob("*")):
+            if p.is_file():
+                zf.write(p, f"synthfolder/{p.relative_to(study).as_posix()}")
+    return str(zpath)
+
+
+@pytest.mark.parametrize("source", ["folder", "stored", "deflated"])
+@pytest.mark.parametrize("new_size", [16 * 7 * 2 - 32, 16 * 7 * 2 + 32])
+def test_wrong_sized_2dseq_gives_the_same_error_for_frames_and_full_reads(tmp_path, source, new_size):
+    path = _rewrite_2dseq(tmp_path, source, new_size)
+    for kwargs in ({}, {"axis": "cycle", "frames": [1, 5]}, {"axis": "cycle", "frames": 0}):
+        with pytest.raises(ValueError) as ref:
+            _reference(path, **kwargs)
+        assert "size mismatch" in str(ref.value)
+        with pytest.raises(ValueError) as got:
+            _get(path, **kwargs)
+        assert str(got.value) == str(ref.value)

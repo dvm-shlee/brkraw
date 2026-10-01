@@ -136,6 +136,11 @@ before comparing or combining with 0.5.7 outputs.
   compressed zip was decompressed two times and needed about 2.6 times the
   file size in memory; now one time and about 1.1 times. `cycle_index/cycle_count`
   (deprecated) read only their block as well.
+- **Damaged zip files:** a read of only some frames from a zip does not check
+  the whole entry's CRC-32 (that needs every byte read), so if the zip is
+  damaged, those frames can come back with wrong values where 0.6.0 stopped
+  with `BadZipFile`. Reading all of the data still checks it. Check a
+  zip you doubt with `python -m zipfile -t file.zip`.
 - A read with `frames` no longer keeps the whole array in the scan afterwards
   (it did in 0.6.0); a later read of the full data reads the file again. If
   the full array is already loaded, `frames` cuts that array as before.
