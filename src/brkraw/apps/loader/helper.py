@@ -757,6 +757,100 @@ def _finalize_affines(
     return tuple(affines)
 
 
+
+def _selection_flags(
+    shape_info: Any,
+    shape: Sequence[int],
+    num_slices: Sequence[int],
+    ax: int,
+    index: Any,
+) -> List[Tuple[bool, bool, bool]]:
+    """(f_contiguous, c_contiguous, writeable) of each slice pack's selection, without any data.
+
+    Builds a read-only stand-in with the strides of a Fortran-ordered array of
+    ``shape`` (one element of memory), then runs the same z-axis swap, slice pack
+    split and basic index (int or slice) that get_dataobj runs on the data.
+    """
+    from numpy.lib.stride_tricks import as_strided
+
+    shape = tuple(int(n) for n in shape)
+    strides = tuple(int(np.prod(shape[:i], dtype=np.int64)) * 2 for i in range(len(shape)))
+    proxy = as_strided(np.zeros(1, dtype="<i2"), shape=shape, strides=strides, writeable=False)
+    data, _ = image_resolver.ensure_3d_spatial_data(proxy, shape_info)
+    flags = []
+    start = 0
+    for count in num_slices:
+        pack = data[:, :, slice(start, start + int(count))]
+        start += int(count)
+        sel: List[Any] = [slice(None)] * pack.ndim
+        sel[ax] = index
+        view = pack[tuple(sel)]
+        flags.append((bool(view.flags.f_contiguous), bool(view.flags.c_contiguous), bool(view.flags.writeable)))
+    return flags
+
+
+def _partial_frames(
+    scan: "ScanLoader",
+    reco_id: int,
+    num_slices: Sequence[int],
+    axis: Any,
+    frames: Any,
+) -> Optional[Tuple[Any, int, Any, List[str]]]:
+    """Read only the asked frames of 2dseq (WI-0083, D-0106), or None to read all like 0.6.0.
+
+    Returns ``(image info with only those frames on the axis, axis, index into
+    that smaller axis, notes)``. None when the selection is bad (the full path
+    then raises its usual error), covers every frame, or when cutting the smaller
+    array would give different ``flags`` than cutting the full array: ``convert -F``
+    chooses its flatten order from the flags, so they must stay as in 0.6.0.
+    """
+    from ...resolver.shape import resolve as shape_resolve
+    from ...specs.context_map.output import parse_frames, pick_axis
+
+    try:
+        shape_info = shape_resolve(scan, reco_id=reco_id)
+        if not shape_info:
+            return None
+        shape, desc = image_resolver.normalized_layout(shape_info)
+        if len(shape) < 4 or len(shape) != len(desc):
+            return None
+        ax = pick_axis(desc, axis)
+        index, _keep, norm, notes = parse_frames(frames, int(shape[ax]))
+    except Exception:
+        return None
+    need = sorted(set(norm))
+    if len(need) >= int(shape[ax]):
+        return None
+    position = {v: i for i, v in enumerate(need)}
+    if isinstance(index, slice):
+        new_index: Any = slice(None, None, -1) if (index.step or 1) < 0 else slice(None)
+    elif isinstance(index, (list, tuple)):
+        new_index = [position[v] for v in norm]
+    else:
+        new_index = position[norm[0]]
+    if not isinstance(new_index, list):
+        # int and slice give views, whose flags follow the strides of the whole array
+        pre_shape = [int(n) for n in shape_info["shape"]]
+        swapped = image_resolver.z_swap_axis(list(shape_info["shape_desc"]))
+        pre_ax = ax
+        if swapped is not None and ax in (2, swapped):
+            pre_ax = swapped if ax == 2 else 2
+        small = list(pre_shape)
+        small[pre_ax] = len(need)
+        try:
+            same = _selection_flags(shape_info, pre_shape, num_slices, ax, index) == \
+                _selection_flags(shape_info, small, num_slices, ax, new_index)
+        except Exception:
+            same = False
+        if not same:
+            logger.debug("partial 2dseq read skipped: the array flags would differ from a full read")
+            return None
+    info = image_resolver.resolve_frames(scan, reco_id, ax, need, shape_info=shape_info)
+    if info is None or info.get("dataobj") is None:
+        return None
+    return info, ax, new_index, list(notes)
+
+
 def get_dataobj(
     self: "ScanLoader",
     reco_id: Optional[int] = None,
@@ -828,7 +922,19 @@ def get_dataobj(
             cycle_count = None
             cycle_args_requested = False
 
-    if cycle_args_requested or image_info.get("dataobj") is None:
+    partial = None
+    if (
+        frames is not None
+        and image_resolver.PARTIAL_READ
+        and not cycle_args_requested
+        and image_info.get("dataobj") is None
+    ):
+        # read only the asked frames; the smaller array is not kept as the scan's data
+        partial = _partial_frames(self, resolved_reco_id, affine_info["num_slices"], axis, frames)
+
+    if partial is not None:
+        image_info = partial[0]
+    elif cycle_args_requested or image_info.get("dataobj") is None:
         image_info = image_resolver.resolve(
             self,
             resolved_reco_id,
@@ -836,7 +942,10 @@ def get_dataobj(
             cycle_index=cycle_index,
             cycle_count=cycle_count,
         )
-        self.image_info[resolved_reco_id] = image_info
+        if not cycle_args_requested:
+            # A legacy cycle block is returned to this caller only; keeping it
+            # would make later plain get_dataobj() calls return the block.
+            self.image_info[resolved_reco_id] = image_info
 
     num_slices = affine_info["num_slices"]
     dataobj = cast(dict, image_info).get("dataobj")
@@ -847,7 +956,18 @@ def get_dataobj(
         slice_offset += _num_slices
         slice_pack.append(_dataobj)
 
-    if frames is not None:
+    if frames is not None and partial is not None:
+        # the data hold only the asked frames on this axis; cut them like the full array
+        _, part_ax, part_index, part_notes = partial
+        selected = []
+        for pack in slice_pack:
+            cut: List[Any] = [slice(None)] * pack.ndim
+            cut[part_ax] = part_index
+            for note in part_notes:
+                logger.warning("scan %s: %s", getattr(self, "scan_id", "?"), note)
+            selected.append(pack[tuple(cut)])
+        slice_pack = selected
+    elif frames is not None:
         # Slice packs first, then the frame selection inside each pack (BRK-0024).
         from ...specs.context_map.output import select_frames
 

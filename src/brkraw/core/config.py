@@ -42,6 +42,12 @@ output:
   slicepack_suffix: "_slpack{index}"
   # float_decimals: 6
 
+# Cache folder (brkraw cache info/clear). Before a command, brkraw warns when the
+# cache is larger than warn_size_gb (GB of 1024^3 bytes; 0 turns the warning off)
+# and, in a terminal, asks per subfolder whether to clear it.
+cache:
+  warn_size_gb: 10
+
 # Viewer settings for brkraw-viewer (optional GUI extension).
 viewer:
   cache:

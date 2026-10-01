@@ -1,12 +1,15 @@
-# Release v0.6.0rc2
+# Release v0.6.1rc1
 
-Date: 2026-09-27
+Date: 2026-10-01
 Changes since 0.5.7
 
-This is the second release candidate of 0.6.0. It is a pre-release, tagged on
+This is the first release candidate of 0.6.1. It is a pre-release, tagged on
 the development fork for testing with real data; it is not published to PyPI
-or TestPyPI yet. rc2 adds a small hook API (below) that rc1 did not have; from
-here to 0.6.0 only fixes go in.
+or TestPyPI yet. There is no 0.6.0 release: 0.6.1rc1 is 0.6.0rc2 plus the
+section "Changes since 0.6.0rc2 (0.6.1, for fork testers)" below (frames read
+from `2dseq` without reading the whole file, a fix for `cycle_index`, a cache
+size warning, and faster file opening). Everything else in this note is the
+0.6.0 content, which reaches users for the first time in this release.
 
 The main goal of 0.6.0 is context mapping for BIDS-style output. 0.6.0 also
 rebuilds the subject orientation of all 16 poses and fixes per-frame intensity
@@ -115,8 +118,58 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
-## Changes since 0.6.0rc2 (for fork testers)
+## Changes since 0.6.0rc2 (0.6.1, for fork testers)
 
+- **`2dseq` is read by the frames you ask for.** `get_dataobj(..., axis=,
+  frames=)` and `convert --axis/--frames` now read only those frames from a
+  folder, a stored zip or a compressed zip, instead of reading the whole
+  `2dseq` and cutting afterwards. Measured on a synthetic 150 MiB `2dseq`
+  (128 x 128 x 16 slices x 300 cycles): asking for 3 cycles took about 3-8 MiB
+  of extra memory (was 150 MiB; 407 MiB for a compressed zip), one cycle
+  about 1-5 MiB. Values, dtype, shape and the array properties are the same
+  as 0.6.0, including the memory layout that `convert -F` uses to choose the
+  flatten order; when the smaller read would change that layout (a step
+  slice such as `::2`, or a single frame or `a:b` slice of an axis that has
+  other frame axes after it), brkraw reads all like 0.6.0. A compressed zip can only
+  be read forward, so reading late frames still has to decompress the frames
+  before them (in small steps, with no extra memory); a stored zip and a
+  folder jump straight to the frames.
+- **The whole `2dseq` is read once, not twice.** The file was opened twice
+  for one read (an existence check and the read itself each loaded it), so a
+  compressed zip was decompressed two times and needed about 2.6 times the
+  file size in memory; now one time and about 1.1 times. `cycle_index/cycle_count`
+  (deprecated) read only their block as well.
+- **Damaged zip files:** a read of only some frames from a zip does not check
+  the whole entry's CRC-32 (that needs every byte read), so if the zip is
+  damaged, those frames can come back with wrong values where 0.6.0 stopped
+  with `BadZipFile`. Reading all of the data still checks it. Check a
+  zip you doubt with `python -m zipfile -t file.zip`.
+- A read with `frames` no longer keeps the whole array in the scan afterwards
+  (it did in 0.6.0); a later read of the full data reads the file again. If
+  the full array is already loaded, `frames` cuts that array as before.
+- **`get_dataobj(cycle_index=...)` no longer changes later reads.** In 0.6.0,
+  after one call with the deprecated `cycle_index`/`cycle_count`, a plain
+  `get_dataobj()` of the same scan returned that block instead of all of the
+  data, and `axis`/`frames` calls after it cut the block (for example "frame 3
+  out of range for 1 frames"). The block is now returned to that call only;
+  what that call returns is unchanged.
+- **Cache size warning:** before a command (not `cache`, `config`, `init`),
+  brkraw warns on stderr when the cache folder is larger than
+  `cache.warn_size_gb` (new config key, default 10 GB; 0 turns it off; or
+  `BRKRAW_NO_CACHE_CHECK=1`) and shows each subfolder's size. In a terminal it
+  asks per subfolder (for example `sordino/`), largest first, `[y/N]`; only
+  `y`/`yes` deletes. Without a terminal nothing is asked or deleted. The
+  command's own result does not change.
+- **`brkraw cache`:** `cache info` lists each subfolder and `(files)` for the
+  files directly in the folder; `cache clear --only NAME` (repeatable) clears
+  only those entries; an unknown name deletes nothing.
+  `brkraw.core.cache.get_info(..., by_entry=True)` and
+  `clear(..., only=[...])` are the same in Python.
+- **Hooks that stop for memory:** a hook may raise a `MemoryError` with a
+  `retry_kwargs` dict (hook arguments that would pass, for example
+  `{"max_memory_gb": 7.5}`); `brkraw convert` in a terminal asks "Proceed
+  anyway?" and on `y` converts that scan once more with them. See
+  [Building converter hook packages](docs/dev/hook-packages.md).
 - **Faster, lighter file opening:** deciding whether a dataset file is a JCAMP
   parameter file now reads only its first 64 KiB. Before, the whole file was
   decoded and split into lines, so opening a 300 MB `2dseq` spent about 1.8 s
