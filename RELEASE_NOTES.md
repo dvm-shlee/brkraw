@@ -115,7 +115,7 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
-## Changes since 0.6.0 (0.6.1, for fork testers)
+## Changes since 0.6.0rc2 (0.6.1, for fork testers)
 
 - **`2dseq` is read by the frames you ask for.** `get_dataobj(..., axis=,
   frames=)` and `convert --axis/--frames` now read only those frames from a
@@ -144,9 +144,29 @@ before comparing or combining with 0.5.7 outputs.
 - A read with `frames` no longer keeps the whole array in the scan afterwards
   (it did in 0.6.0); a later read of the full data reads the file again. If
   the full array is already loaded, `frames` cuts that array as before.
-
-## Changes since 0.6.0rc2 (for fork testers)
-
+- **`get_dataobj(cycle_index=...)` no longer changes later reads.** In 0.6.0,
+  after one call with the deprecated `cycle_index`/`cycle_count`, a plain
+  `get_dataobj()` of the same scan returned that block instead of all of the
+  data, and `axis`/`frames` calls after it cut the block (for example "frame 3
+  out of range for 1 frames"). The block is now returned to that call only;
+  what that call returns is unchanged.
+- **Cache size warning:** before a command (not `cache`, `config`, `init`),
+  brkraw warns on stderr when the cache folder is larger than
+  `cache.warn_size_gb` (new config key, default 10 GB; 0 turns it off; or
+  `BRKRAW_NO_CACHE_CHECK=1`) and shows each subfolder's size. In a terminal it
+  asks per subfolder (for example `sordino/`), largest first, `[y/N]`; only
+  `y`/`yes` deletes. Without a terminal nothing is asked or deleted. The
+  command's own result does not change.
+- **`brkraw cache`:** `cache info` lists each subfolder and `(files)` for the
+  files directly in the folder; `cache clear --only NAME` (repeatable) clears
+  only those entries; an unknown name deletes nothing.
+  `brkraw.core.cache.get_info(..., by_entry=True)` and
+  `clear(..., only=[...])` are the same in Python.
+- **Hooks that stop for memory:** a hook may raise a `MemoryError` with a
+  `retry_kwargs` dict (hook arguments that would pass, for example
+  `{"max_memory_gb": 7.5}`); `brkraw convert` in a terminal asks "Proceed
+  anyway?" and on `y` converts that scan once more with them. See
+  [Building converter hook packages](docs/dev/hook-packages.md).
 - **Faster, lighter file opening:** deciding whether a dataset file is a JCAMP
   parameter file now reads only its first 64 KiB. Before, the whole file was
   decoded and split into lines, so opening a 300 MB `2dseq` spent about 1.8 s

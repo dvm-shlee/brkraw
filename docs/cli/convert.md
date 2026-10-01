@@ -121,6 +121,13 @@ hooks:
     key: value
 ```
 
+A hook may stop a scan before it starts because it would need more memory than
+its limit (for example SORDINO, `max_memory_gb`). In a terminal, `convert` then
+shows the reason and asks `Proceed anyway with max_memory_gb=... for scan N? [y/N]`;
+`y` converts that scan once more with the proposed value. Without a terminal
+the scan fails with the message, as any other conversion error; give the value
+with `-H sordino:max_memory_gb=...` to run it.
+
 ## NIfTI header
 
 | Option | Meaning |

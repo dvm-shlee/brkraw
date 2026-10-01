@@ -9,7 +9,7 @@ from ..core.entrypoints import list_entry_points as _iter_entry_points
 
 from brkraw import __version__
 from brkraw.core import config as config_core
-from brkraw.cli import pvcmd
+from brkraw.cli import cache_check, pvcmd
 
 PLUGIN_GROUP = "brkraw.cli"
 HELP_CATEGORY_ORDER = ("Data", "Workspace", "Extensions")
@@ -198,6 +198,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Only after parsing: -h/--version never get here, and only commands whose
     # dataset path is empty ask ParaVision (BRK-0030 ①, BRK-0031 ③).
     pvcmd.autoset_path_from_paravision(args)
+    # A cache larger than cache.warn_size_gb: warn, and in a terminal offer to
+    # clear it entry by entry (WI-0074). run_check never raises, so the command
+    # always runs and keeps its own result.
+    cache_check.run_check(getattr(args, "command", None))
     func: Callable[[argparse.Namespace], int] = args.func
     return func(args)
 
