@@ -1,12 +1,15 @@
-# Release v0.6.0rc2
+# Release v0.6.1rc1
 
-Date: 2026-09-27
+Date: 2026-10-01
 Changes since 0.5.7
 
-This is the second release candidate of 0.6.0. It is a pre-release, tagged on
+This is the first release candidate of 0.6.1. It is a pre-release, tagged on
 the development fork for testing with real data; it is not published to PyPI
-or TestPyPI yet. rc2 adds a small hook API (below) that rc1 did not have; from
-here to 0.6.0 only fixes go in.
+or TestPyPI yet. There is no 0.6.0 release: 0.6.1rc1 is 0.6.0rc2 plus the
+section "Changes since 0.6.0rc2 (0.6.1, for fork testers)" below (frames read
+from `2dseq` without reading the whole file, a fix for `cycle_index`, a cache
+size warning, and faster file opening). Everything else in this note is the
+0.6.0 content, which reaches users for the first time in this release.
 
 The main goal of 0.6.0 is context mapping for BIDS-style output. 0.6.0 also
 rebuilds the subject orientation of all 16 poses and fixes per-frame intensity
