@@ -4,83 +4,65 @@
     {
       "id": "releaseVersion",
       "type": "promptString",
-      "description": "Release version (e.g., 1.0.0)"
+      "description": "Release version, PEP 440 without a leading v (e.g. 0.6.1 or 0.6.1rc3)"
     }
   ],
   "tasks": [
     {
-      "label": "Standard: Setup venv + deps",
+      "label": "Setup: uv sync (dev)",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" -m venv .venv && \"${workspaceFolder}/.venv/bin/python\" -m pip install -U pip && \"${workspaceFolder}/.venv/bin/python\" -m pip install -e \".[dev]\"",
-      "windows": {
-        "command": "\"${workspaceFolder}\\.venv\\Scripts\\python\" -m venv .venv; \"${workspaceFolder}\\.venv\\Scripts\\python\" -m pip install -U pip; \"${workspaceFolder}\\.venv\\Scripts\\python\" -m pip install -e \".[dev]\"",
-        "options": {
-          "shell": {
-            "executable": "pwsh"
-          }
-        }
-      },
+      "command": "uv sync --locked --extra dev",
       "group": "build",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Create or update .venv from uv.lock with the dev tools."
     },
     {
-      "label": "Standard: Release Prep PR (2-step)",
+      "label": "Test: tests",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/release_pr.py --version ${input:releaseVersion} --base upstream/main --remote-upstream upstream --remote-origin origin",
-      "group": "build",
-      "problemMatcher": []
+      "command": "uv run --locked --extra dev pytest -q tests",
+      "group": "test",
+      "problemMatcher": [],
+      "detail": "Synthetic test suite (the same tests CI runs)."
     },
     {
-      "label": "DryRun: Release Prep PR (2-step)",
+      "label": "Validate: real data (manual)",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/release_pr.py --dry-run --version ${input:releaseVersion} --base upstream/main --remote-upstream upstream --remote-origin origin",
-      "group": "build",
-      "problemMatcher": []
+      "command": "uv run --locked --extra dev pytest -v scripts/validate/check_agent_fixtures.py",
+      "group": "test",
+      "problemMatcher": [],
+      "detail": "Checks on approved real zips; run by hand before every rc and release. Not run by CI."
     },
     {
-      "label": "Standard: MkDocs Serve",
+      "label": "Docs: MkDocs serve",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" -m mkdocs serve",
+      "command": "uv run --locked --extra dev mkdocs serve",
       "group": "build",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Serve the documentation locally."
     },
     {
-      "label": "Optional: Release Prep (bump + notes)",
+      "label": "Release: prep (local, no network)",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/update_contributors.py --source github --repo brkraw/brkraw --output docs/dev/contributors.md && \"${workspaceFolder}/.venv/bin/python\" scripts/release_prep.py --version ${input:releaseVersion} --fetch-tags --remote upstream",
-      "windows": {
-        "command": "pwsh -NoProfile -Command \"& \\\"${workspaceFolder}\\.venv\\Scripts\\python\\\" scripts/update_contributors.py --source github --repo brkraw/brkraw --output docs/dev/contributors.md; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & \\\"${workspaceFolder}\\.venv\\Scripts\\python\\\" scripts/release_prep.py --version ${input:releaseVersion} --fetch-tags --remote upstream\""
-      },
+      "command": "uv run --locked --extra dev python scripts/release_prep.py --version ${input:releaseVersion}",
       "group": "build",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Bump the version files and rename the Unreleased section; keeps the hand-written release notes. No Git, no network."
     },
     {
-      "label": "Optional: Release Notes Only",
+      "label": "Release: open upstream PR (dry run)",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/release_notes.py --fetch-tags --remote upstream",
+      "command": "uv run --locked --extra dev python scripts/release_pr.py --dry-run --repo BrkRaw/brkraw --version ${input:releaseVersion}",
       "group": "build",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Print every step without writing files, running Git commands that change anything, or using the network."
     },
     {
-      "label": "Optional: Release Tag + Push (upstream)",
+      "label": "Release: open upstream PR (--repo BrkRaw/brkraw)",
       "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/tag_and_push.py",
+      "command": "uv run --locked --extra dev python scripts/release_pr.py --repo BrkRaw/brkraw --version ${input:releaseVersion}",
       "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Optional: Docs Update Contributors (git)",
-      "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/update_contributors.py --source git --output docs/dev/contributors.md",
-      "group": "build",
-      "problemMatcher": []
-    },
-    {
-      "label": "Optional: Docs Update Contributors (GitHub API)",
-      "type": "shell",
-      "command": "\"${workspaceFolder}/.venv/bin/python\" scripts/update_contributors.py --source github --repo brkraw/brkraw --output docs/dev/contributors.md",
-      "group": "build",
-      "problemMatcher": []
+      "problemMatcher": [],
+      "detail": "Run on release/<version>: prep, tests, commit, push the branch to origin (no tags), open the PR on BrkRaw/brkraw with the release label."
     }
   ]
 }

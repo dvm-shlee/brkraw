@@ -19,19 +19,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_PATH = REPO_ROOT / "docs" / "assets" / "zenodo_badge.svg"
 
 
-def run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
-    print("+ " + " ".join(cmd))
-    return subprocess.run(cmd, check=check, text=True, capture_output=False)
-
-
-def has_remote(name: str) -> bool:
-    p = subprocess.run(["git", "remote"], text=True, capture_output=True)
-    if p.returncode != 0:
-        return False
-    remotes = {line.strip() for line in p.stdout.splitlines() if line.strip()}
-    return name in remotes
-
-
 def fetch_latest_doi(concept_doi: str) -> str:
     query = urllib.parse.urlencode(
         {
@@ -73,7 +60,7 @@ def main() -> int:
     parser.add_argument(
         "--no-git",
         action="store_true",
-        help="Only update the SVG file; do not run git add/commit/push.",
+        help="Kept for old commands; the script never runs Git now.",
     )
     args = parser.parse_args()
 
@@ -95,30 +82,10 @@ def main() -> int:
         OUTPUT_PATH.write_bytes(r.read())
 
     print(f"Saved:\n  {OUTPUT_PATH}")
-
-    if args.no_git:
-        return 0
-
-    run(["git", "add", str(OUTPUT_PATH)])
-
-    # If nothing staged, do not commit/push
-    diff = subprocess.run(["git", "diff", "--cached", "--quiet"])
-    if diff.returncode == 0:
-        print("No changes staged. Nothing to commit.")
-        return 0
-
-    run(["git", "commit", "-m", "Update Zenodo DOI badge"])
-
-    if has_remote("origin"):
-        run(["git", "push", "origin"])
-    else:
-        print("Remote 'origin' not found. Skipping push origin.")
-
-    if has_remote("upstream"):
-        run(["git", "push", "upstream"])
-    else:
-        print("Remote 'upstream' not found. Skipping push upstream.")
-
+    # No Git here: the badge reaches upstream through a normal PR
+    # (branch docs/zenodo-badge -> fork main -> release or docs PR), never by a
+    # direct push to upstream.
+    print("Commit it on a branch and open a PR; this script does not run Git.")
     return 0
 
 

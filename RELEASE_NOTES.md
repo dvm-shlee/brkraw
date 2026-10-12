@@ -124,6 +124,20 @@ Foot_Left, Foot_Right). Scanner space: 4 poses (Foot_Left, Foot_Right for Biped
 and Quadruped). With a pose or subject-type override: 12 poses. Convert again
 before comparing or combining with 0.5.7 outputs.
 
+## Unreleased
+
+- **Release tools (maintainers).** `scripts/release_prep.py` keeps the
+  hand-written release notes: it changes only their first heading and date and
+  renames this `Unreleased` section; it runs no Git command and uses no
+  network. `scripts/release_pr.py --dry-run` writes nothing and uses no
+  network, and a real run pushes the release branch without tags.
+  `scripts/tag_and_push.py` no longer tags. The release workflows check that
+  the tag equals the package version before tagging, releasing and
+  publishing; a tag pushed to `BrkRaw/brkraw` no longer starts a release; a
+  final release also starts the documentation deployment. See "Development
+  workflow" and "Release and publishing" in
+  [Contributing](docs/dev/contributing.md).
+
 ## Changes since 0.6.1rc1
 
 - **NIfTI output options reach a converter hook.** `xyz_units`, `t_units`

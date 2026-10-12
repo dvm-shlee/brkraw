@@ -1,13 +1,13 @@
 name: Create Release
 
+# Started only by Release On Merge (after it tags a labeled release PR's merge
+# commit) or by hand. There is deliberately no tag-push trigger: a tag pushed
+# by mistake (for example a fork-only tag sent with --tags) must not release.
 on:
-  push:
-    tags:
-      - "*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v1.2.3)"
+        description: "Tag to release, the package version without v (e.g. 0.6.1)"
         required: true
         type: string
 
@@ -36,6 +36,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.tag.outputs.value }}
+      - name: Check tag matches package version
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: python3 scripts/verify_release_version.py --tag "$TAG"
       - name: Detect prerelease tag
         id: prerelease
         run: |
@@ -140,3 +144,11 @@ jobs:
           target="${{ steps.prerelease.outputs.value == 'true' && 'testpypi' || 'pypi' }}"
           tag="${{ steps.tag.outputs.value }}"
           gh workflow run publish.yml -f target="$target" -f tag="$tag"
+      # A release created with GITHUB_TOKEN does not emit the `release: published`
+      # event that Deploy Docs listens for, so start it here (final releases only),
+      # the same way Publish Package is started above.
+      - name: Trigger docs deployment
+        if: ${{ steps.prerelease.outputs.value == 'false' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run docs.yml

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to create and push (e.g., v0.4.2)"
+        description: "Tag to create on the current main tip, the package version without v (e.g. 0.6.1)"
         required: true
       run_release:
         description: "Trigger release workflow after tagging"
@@ -124,6 +124,11 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           echo "run_release=${{ inputs.run_release }}" >> "$GITHUB_OUTPUT"
+      - name: Check tag matches package version
+        if: ${{ steps.version.outputs.changed == 'true' || steps.manual.outputs.changed == 'true' }}
+        env:
+          TAG: ${{ steps.manual.outputs.value || steps.version.outputs.value }}
+        run: python3 scripts/verify_release_version.py --tag "$TAG"
       - name: Create and push tag
         if: ${{ steps.version.outputs.changed == 'true' || steps.manual.outputs.changed == 'true' }}
         run: |

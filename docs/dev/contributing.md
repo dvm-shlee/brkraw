@@ -48,11 +48,20 @@ python -m pip install -e ".[dev]"
 
 2. In VSCode, select the workspace interpreter (`.venv/bin/python`).
 
-3. Optional: run predefined tasks from the Command Palette:
+3. Optional: run predefined tasks from the Command Palette
+   (`Tasks: Run Task`). All of them use `uv` and the tracked `uv.lock`:
 
-- `Standard: Setup venv + deps`
-- `Standard: MkDocs Serve`
-- `Standard: Release Prep PR (2-step)`
+| Task | What it does |
+| --- | --- |
+| `Setup: uv sync (dev)` | Create or update `.venv` with the development tools |
+| `Test: tests` | The synthetic test suite, the same one CI runs |
+| `Validate: real data (manual)` | Checks on approved real data (see below); not run by CI |
+| `Docs: MkDocs serve` | Serve the documentation locally |
+| `Release: prep (local, no network)` | Bump the version files and rename the `Unreleased` notes section |
+| `Release: open upstream PR (dry run)` | Print every release step; writes nothing and uses no network |
+| `Release: open upstream PR (--repo BrkRaw/brkraw)` | Open the release PR (see "Release and publishing") |
+
+There is deliberately no task that creates or pushes a tag.
 
 ---
 
@@ -86,6 +95,57 @@ converting every scan of the 5.1, 6.0.1 and 360.3.x zips, scans with one equal
 slope per frame keeping raw data, context map values read from real scan info
 leaving it unchanged, and the self-test of the fixture finder. Each of these
 has a synthetic counterpart in `tests/`.
+
+---
+
+## Development workflow (branches, release notes, tests)
+
+Maintainers develop on a fork (remote `origin`). `BrkRaw/brkraw` (remote
+`upstream`) receives release pull requests only, and only its workflows create
+tags and publish packages.
+
+**Branches**
+
+- Work on `feat/<topic>`, `fix/<topic>`, `docs/<topic>` or `test/<topic>`,
+  branched from the fork's `main`.
+- Open a pull request into the fork's `main`. Merge it as soon as CI and review
+  pass. The fork's `main` is always the next release candidate, so packages
+  that depend on brkraw (viewer, hooks) can test against it.
+- `release/<version>` holds only the version bump and the release-note heading.
+  It is the only kind of branch proposed to `BrkRaw/brkraw`.
+- After the upstream merge, fast-forward the fork's `main` to `upstream/main`
+  so both stay the same.
+
+**Release notes**
+
+- `RELEASE_NOTES.md` is written by hand and becomes the text of the GitHub
+  release and of the announcement.
+- Every feature or fix pull request adds its entry under a `## Unreleased`
+  heading (if it is missing, add it above the newest `## Changes since`
+  section): what changed for users and what they need to do.
+- At release time `scripts/release_prep.py` changes only the first heading
+  (`# Release v<version>`), the `Date:` line, and renames `## Unreleased` to
+  `## Changes since <previous version>`. It does not rewrite or generate the
+  text.
+
+**Tests**
+
+- CI runs `tests/` (synthetic data only) on every push and pull request that
+  touches `src/`, `tests/`, `scripts/` or `pyproject.toml`.
+- By hand, before every release candidate and release: the real-data checks in
+  `scripts/validate/` (task `Validate: real data (manual)`). brkraw-viewer also
+  has a manual GUI smoke test.
+- Documentation changes are checked by the Docs check workflow
+  (`mkdocs build --strict`).
+
+**Versions and tags**
+
+- Versions follow PEP 440 without a leading `v`: `0.6.1rc1`, `0.6.1rc2`, then
+  `0.6.1`. The tag has the same text as the version.
+- Tags are created only by the upstream `Release On Merge` workflow. Do not
+  create tags by hand and never push tags to `upstream` (`git push --tags` or
+  `--follow-tags`): a pushed tag does not start a release, but it would leave
+  a tag that may point at a different commit than the released one.
 
 ---
 
@@ -204,21 +264,55 @@ tools across labs and projects.
 
 ## Release and publishing (GitHub Actions)
 
-BrkRaw uses a 2-step PR-based release flow:
+A release is one pull request from the fork branch `release/<version>` into
+`BrkRaw/brkraw` `main`. Merging it with the `release` label does the rest.
 
-1. Run `Standard: Release Prep PR (2-step)` to create a release prep PR (version bump,
-   contributors refresh, and release notes).
-2. Review the PR, ensure CI passes, and apply the `release` label.
-3. Merge the PR to `main`.
-4. `Release On Merge` tags the merge commit.
-5. `Create Release` runs for the tag and creates a GitHub Release.
-6. When the Release is published, `Publish Package` runs automatically.
+1. Run the real-data checks (`Validate: real data (manual)`) on the fork's
+   `main`, and make sure the notes have an `## Unreleased` section.
+2. Create the branch: `git switch -c release/<version> origin/main`.
+3. Run `Release: open upstream PR (dry run)` and read the plan. It writes no
+   file and uses no network.
+4. Run `Release: open upstream PR (--repo BrkRaw/brkraw)`
+   (`scripts/release_pr.py --repo BrkRaw/brkraw --version <version>`). It
+   refuses to run unless the branch is `release/<version>`, the tree is
+   clean and `--repo` is the `upstream` remote. It then refreshes the
+   contributors list, runs `release_prep.py`, runs `pytest -q tests`, makes one
+   commit, pushes the branch only
+   (`git push --no-follow-tags origin HEAD:refs/heads/release/<version>`),
+   opens the PR on `BrkRaw/brkraw` and adds the `release` label (also for
+   `a`/`b`/`rc` versions).
+5. Review the PR and wait for CI. Merge it with a merge commit, not squash or
+   rebase: `gh pr merge <number> --repo BrkRaw/brkraw --merge`.
+6. The workflows then run on `BrkRaw/brkraw` by themselves:
+   - `Release On Merge` finds the PR of the merge commit, requires the
+     `release` label and a change to `src/brkraw/__init__.py`, checks that the
+     tag equals `__version__` (`scripts/verify_release_version.py`), tags the
+     merge commit and starts `Create Release`.
+   - `Create Release` checks the tag again, creates the GitHub release with
+     `RELEASE_NOTES.md` as its text (a pre-release for `a`, `b` and `rc`),
+     posts it in the Discussions category "Announcements" if that exists, and
+     starts `Publish Package` (TestPyPI for a pre-release, PyPI otherwise). For
+     a final release it also starts `Deploy Docs`.
+   - `Publish Package` checks the tag once more, builds, runs `twine check`
+     and publishes with trusted publishing.
+7. Fast-forward the fork: `git fetch upstream --tags`,
+   `git switch main`, `git merge --ff-only upstream/main`,
+   `git push origin main`.
 
-Notes:
+If `Release On Merge` skipped the tag (no label, or no PR found for the merge
+commit) and nothing else was merged since, start it by hand:
+`gh workflow run release_on_merge.yml --repo BrkRaw/brkraw -f tag=<version> -f run_release=true`.
+If the tag exists but a later step failed, run that workflow again with
+`gh workflow run release.yml --repo BrkRaw/brkraw -f tag=<version>` or
+`gh workflow run publish.yml --repo BrkRaw/brkraw -f target=pypi -f tag=<version>`.
 
-- Pre-release versions (`a`, `b`, `rc`) create GitHub pre-releases and skip PyPI
-  publishing.
-- The publish workflow validates that the tag matches the package version.
+`gh` needs a token with the `workflow` scope to merge a pull request that
+changes `.github/workflows/` (`gh auth refresh -s workflow`).
+
+The Zenodo DOI badge (`docs/assets/zenodo_badge.svg`) is updated after a
+release with `scripts/update_zenodo_badge.py`, which only rewrites the file;
+commit it on a `docs/` branch and send it through the fork like any other
+change.
 
 ---
 

@@ -9,7 +9,7 @@ on:
         options: [testpypi, pypi]
         default: testpypi
       tag:
-        description: "Tag to publish (optional, e.g. v1.2.3)"
+        description: "Tag to publish, the package version without v (e.g. 0.6.1)"
         required: false
         type: string
   workflow_call:
@@ -19,7 +19,7 @@ on:
         type: string
         default: testpypi
       tag:
-        description: "Tag to publish (optional, e.g. v1.2.3)"
+        description: "Tag to publish, the package version without v (e.g. 0.6.1)"
         required: false
         type: string
 
@@ -34,7 +34,7 @@ jobs:
       - name: Resolve tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+          if [ -n "${{ inputs.tag }}" ]; then
             echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
@@ -42,6 +42,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.tag.outputs.value }}
+      - name: Check tag matches package version
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: python3 scripts/verify_release_version.py --tag "$TAG"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
