@@ -47,7 +47,12 @@ def _load_prep(root: Path):
     if spec is None or spec.loader is None:
         raise ReleasePRError(f"Cannot load {path}.")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    old_flag = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True  # no __pycache__ in the tree, also in --dry-run
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = old_flag
     return module
 
 

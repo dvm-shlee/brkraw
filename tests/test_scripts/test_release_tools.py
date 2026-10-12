@@ -149,9 +149,10 @@ class Sandbox:
     def snapshot(self) -> dict:
         files = {}
         # .git/ is left out: read-only `git status` may refresh the index file.
+        # __pycache__ is included: a dry run must not leave bytecode either.
         for path in sorted(self.root.rglob("*")):
             rel_parts = path.relative_to(self.root).parts
-            if path.is_file() and "__pycache__" not in rel_parts and rel_parts[0] != ".git":
+            if path.is_file() and rel_parts[0] != ".git":
                 files[str(path.relative_to(self.root))] = path.read_bytes()
         return files
 
@@ -193,9 +194,16 @@ def sandbox(tmp_path: Path) -> Sandbox:
             "FAKE_REAL_GIT": REAL_GIT,
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_TERMINAL_PROMPT": "0",
+            # Any HTTP(S) call from a script (urllib honours these) goes to a
+            # closed local port and fails, so a network call shows as an error.
+            "HTTP_PROXY": "http://127.0.0.1:9",
+            "HTTPS_PROXY": "http://127.0.0.1:9",
+            "http_proxy": "http://127.0.0.1:9",
+            "https_proxy": "http://127.0.0.1:9",
         }
     )
-    env.pop("FAKE_GH_MODE", None)
+    for key in ("FAKE_GH_MODE", "NO_PROXY", "no_proxy"):
+        env.pop(key, None)
     box = Sandbox(root, logs, env)
     box.git("init", "-q")
     box.git("config", "user.name", "Release Test")
