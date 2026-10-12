@@ -146,13 +146,13 @@ class Sandbox:
             subs.append(args[i] if i < len(args) else "")
         return subs
 
-    def snapshot(self) -> dict:
+    def snapshot(self, include_git: bool = False) -> dict:
         files = {}
-        # .git/ is left out: read-only `git status` may refresh the index file.
         # __pycache__ is included: a dry run must not leave bytecode either.
+        # .git/ only on request (the release_pr dry run must not touch it either).
         for path in sorted(self.root.rglob("*")):
             rel_parts = path.relative_to(self.root).parts
-            if path.is_file() and rel_parts[0] != ".git":
+            if path.is_file() and (include_git or rel_parts[0] != ".git"):
                 files[str(path.relative_to(self.root))] = path.read_bytes()
         return files
 
@@ -311,6 +311,20 @@ def test_release_prep_refuses_notes_without_release_heading(sandbox: Sandbox) ->
     assert sandbox.snapshot() == before
 
 
+@pytest.mark.parametrize("damage", ["two_unreleased", "no_bibtex_markers"])
+def test_release_prep_refuses_damaged_inputs_and_writes_nothing(sandbox: Sandbox, damage: str) -> None:
+    if damage == "two_unreleased":
+        notes = sandbox.root / "RELEASE_NOTES.md"
+        notes.write_text(notes.read_text(encoding="utf-8") + "\n## Unreleased\n\n- again\n", encoding="utf-8")
+    else:
+        readme = sandbox.root / "README.md"
+        readme.write_text(readme.read_text(encoding="utf-8").replace("<!-- END: brkraw-bibtex -->", ""), encoding="utf-8")
+    before = sandbox.snapshot()
+    result = sandbox.run("release_prep.py", "--version", NEW_RC)
+    assert result.returncode != 0
+    assert sandbox.snapshot() == before
+
+
 def test_release_prep_runs_no_git(sandbox: Sandbox) -> None:
     result = sandbox.run("release_prep.py", "--version", NEW_RC)
     assert result.returncode == 0, result.stderr
@@ -322,10 +336,14 @@ def test_release_prep_runs_no_git(sandbox: Sandbox) -> None:
 
 
 def test_release_pr_dry_run_changes_nothing_and_uses_no_network(sandbox: Sandbox) -> None:
-    before = sandbox.snapshot()
+    # Make the index stale on purpose: a plain `git status` would then rewrite .git/index.
+    readme = sandbox.root / "README.md"
+    stat_before = readme.stat()
+    os.utime(readme, (stat_before.st_atime + 5, stat_before.st_mtime + 5))
+    before = sandbox.snapshot(include_git=True)
     result = sandbox.run("release_pr.py", "--dry-run", "--repo", "BrkRaw/brkraw", "--version", NEW_RC)
     assert result.returncode == 0, result.stderr + result.stdout
-    assert sandbox.snapshot() == before
+    assert sandbox.snapshot(include_git=True) == before
     assert sandbox.git("status", "--porcelain") == ""
     assert sandbox.calls("gh") == []
     used = set(sandbox.git_subcommands())

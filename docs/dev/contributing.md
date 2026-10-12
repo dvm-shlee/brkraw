@@ -305,6 +305,9 @@ commit) and nothing else was merged since, start it by hand:
 If the tag exists but a later step failed, run that workflow again with
 `gh workflow run release.yml --repo BrkRaw/brkraw -f tag=<version>` or
 `gh workflow run publish.yml --repo BrkRaw/brkraw -f target=pypi -f tag=<version>`.
+These re-runs work for tags made after `scripts/verify_release_version.py` was
+added; an older tag (0.6.1rc2 and before) does not contain that script, so the
+version check stops the re-run.
 
 `gh` needs a token with the `workflow` scope to merge a pull request that
 changes `.github/workflows/` (`gh auth refresh -s workflow`).

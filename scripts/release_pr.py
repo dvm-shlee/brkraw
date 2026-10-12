@@ -18,7 +18,8 @@ Steps, in order (each stops the run if it fails):
 
 It never creates or pushes a tag and never merges. ``--dry-run`` prints every
 step and runs only read-only local Git commands (``rev-parse``, ``status``,
-``remote get-url``): no file is written and nothing uses the network.
+``remote get-url``, all with ``--no-optional-locks``): no file is written,
+also not in ``.git/``, and nothing uses the network.
 """
 
 from __future__ import annotations
@@ -65,9 +66,13 @@ def _run(cmd: Sequence[str], root: Path, *, check: bool = True) -> subprocess.Co
 
 
 def _git_read(root: Path, *args: str) -> str:
-    """Read-only local Git commands only; used in dry-run too."""
+    """Read-only local Git commands only; used in dry-run too.
+
+    ``--no-optional-locks`` stops ``git status`` from refreshing ``.git/index``,
+    so a dry run leaves ``.git/`` byte-identical as well.
+    """
     assert args[0] in ("rev-parse", "status", "remote"), args
-    return _run(["git", *args], root).stdout.strip()
+    return _run(["git", "--no-optional-locks", *args], root).stdout.strip()
 
 
 def parse_owner_repo(remote_url: str) -> str:
